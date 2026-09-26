@@ -11,6 +11,7 @@ import pytest
 
 from server.judge import (
     Citation, Judgement, apply_guard_rails, compare_values, confidence_from,
+    evidence_is_about_the_claim, evidence_names_everyone_in_the_claim, looks_like_a_year,
     find_sentence_by_overlap, find_supporting_sentence, first_number,
     longest_verbatim_prefix, verify_citations,
 )
@@ -334,3 +335,74 @@ def test_checks_are_plain_dicts_the_page_can_render():
     _, checks = apply_guard_rails(j, evidence, "Usain Bolt ran 9.58 seconds.")
     for c in checks:
         assert set(c) == {"code", "note"}
+
+
+# --- years, precision, and relevance ----------------------------------------
+
+
+def test_a_year_is_never_within_tolerance_of_another_year():
+    """The bug this pins: 1995 and 1991 are 0.2% apart, so a percentage
+    tolerance called a four-year error a rounding error. "Python was invented
+    in 1995" was reported as AGREEING with a passage that said 1991.
+
+    Percentage tolerance is meaningful for a measurement and meaningless for
+    a date."""
+    assert compare_values("1995", "1991") == "mismatch"
+    assert compare_values("2010", "2007") == "mismatch"
+    assert compare_values("1889", "1889") == "match"
+
+
+def test_quantities_keep_their_tolerance():
+    assert compare_values("8848 meters", "8848.86 metres") == "match"
+    assert compare_values("45 goals", "45.2 goals") == "match"
+    assert compare_values("45 goals", "47 goals") == "mismatch"
+
+
+def test_the_claims_own_number_does_not_decide_relevance():
+    """The bug this pins: a passage that CONTRADICTS a claim cannot contain
+    the claim's number -- that is what makes it a contradiction. Counting it
+    dragged "Python was invented in 1995" against a Wikipedia passage saying
+    1991 to 0.333, just under the threshold, and the correct ABSOLUTE CAP was
+    discarded as off-topic."""
+    evidence = [ev("E1", "Python was created by Guido van Rossum and first released on February 20, 1991.")]
+    assert evidence_is_about_the_claim(
+        "Python was invented in 1995.", [Citation(evidence_id="E1", quote="x")], evidence
+    )
+
+
+def test_a_genuinely_unrelated_passage_is_still_rejected():
+    """Loosening relevance must not let the Fifty Seconds restaurant back in."""
+    evidence = [ev("E1", "Access is via a lift that takes exactly 50 seconds to reach the top.")]
+    assert not evidence_is_about_the_claim(
+        "Python was invented in 1995.", [Citation(evidence_id="E1", quote="x")], evidence
+    )
+
+
+def test_a_precision_difference_is_not_a_partial_truth():
+    """8,848 against 8,848.86 metres is the same mountain stated to fewer
+    decimal places. Calling that SOME CAP reads as nitpicking, not checking."""
+    evidence = [ev("E1", "Mount Everest is 8,848.86 metres above sea level according to the 2020 survey.")]
+    j = judgement(
+        verdict="PARTIALLY_SUPPORTED",
+        claimed_value="8848 meters",
+        evidence_value="8848.86 metres",
+        citations=[Citation(evidence_id="E1", quote="Mount Everest is 8,848.86 metres above sea level")],
+    )
+    result, checks = apply_guard_rails(j, evidence, "Mount Everest is 8,848 meters tall", shape="count")
+    assert result.verdict == "SUPPORTED"
+    assert sum(1 for c in checks if c["code"] == "numbers_match") == 1, "one fact, stated once"
+
+
+def test_identical_numbers_never_upgrade_a_partial_verdict():
+    """If the values agree exactly and the judge still said partially
+    supported, the disagreement is about the year or the scope or the person,
+    and that judgement must be left alone."""
+    evidence = [ev("E1", "Messi scored 45 goals during the 2023 season for his club side.")]
+    j = judgement(
+        verdict="PARTIALLY_SUPPORTED",
+        claimed_value="45 goals",
+        evidence_value="45 goals",
+        citations=[Citation(evidence_id="E1", quote="Messi scored 45 goals during the 2023 season")],
+    )
+    result, _ = apply_guard_rails(j, evidence, "Messi scored 45 goals in 2024", shape="count")
+    assert result.verdict == "PARTIALLY_SUPPORTED"

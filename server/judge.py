@@ -346,7 +346,14 @@ def evidence_is_about_the_claim(claim: str, citations: list[Citation], evidence:
     """Does any cited passage actually share the claim's subject?"""
     from .sources import keywords
 
-    wanted = keywords(claim)
+    # Numbers are excluded deliberately. A passage that CONTRADICTS a claim
+    # cannot contain the claim's number -- that is what makes it a
+    # contradiction. Counting it dragged "Python was invented in 1995"
+    # against a Wikipedia passage saying 1991 down to 0.333, just under the
+    # threshold, and a correct ABSOLUTE CAP was thrown away as off-topic.
+    # Relevance is about the SUBJECT; whether the numbers agree is a separate
+    # question with its own guard rail.
+    wanted = {w for w in keywords(claim) if not any(c.isdigit() for c in w)}
     if len(wanted) < 2:
         # Too few distinctive words to judge relevance either way. A claim
         # this thin is not something we should be answering at all.
@@ -357,8 +364,8 @@ def evidence_is_about_the_claim(claim: str, citations: list[Citation], evidence:
         item = by_id.get(citation.evidence_id)
         if not item:
             continue
-        overlap = len(wanted & keywords(item.text)) / len(wanted)
-        if overlap >= MIN_SUBJECT_OVERLAP:
+        found = {w for w in keywords(item.text) if not any(c.isdigit() for c in w)}
+        if len(wanted & found) / len(wanted) >= MIN_SUBJECT_OVERLAP:
             return True
     return False
 
@@ -372,7 +379,22 @@ WORD_NUMBERS = {
     "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
 }
 
-NUMBER_TOLERANCE = 0.05
+# How far apart two quantities can be and still be the same claim. Three per
+# cent: enough that 8,848 and 8,848.86 metres are the same mountain, tight
+# enough that 45 and 47 goals are not the same season.
+NUMBER_TOLERANCE = 0.03
+
+
+def looks_like_a_year(value: float) -> bool:
+    """A four-digit whole number in a plausible calendar range.
+
+    Years must be compared exactly, never proportionally. 1995 and 1991 are
+    0.2% apart, so any percentage tolerance calls a four-year error a
+    rounding error -- which is how "Python was invented in 1995" was reported
+    as agreeing with a passage that said 1991. Percentage tolerance is
+    meaningful for a measurement and meaningless for a date.
+    """
+    return value.is_integer() and 1000 <= value <= 2999
 # A word qualifier needs a space after it, or "over" would eat the start of
 # "overall". The "~" symbol is written flush against its number, so it gets its
 # own branch rather than a looser rule that would let word qualifiers match
@@ -426,6 +448,8 @@ def compare_values(claimed: str, stated: str) -> str | None:
         return None
     if a == b:
         return "match"
+    if looks_like_a_year(a) and looks_like_a_year(b):
+        return "mismatch"
     scale = max(abs(a), abs(b))
     return "match" if abs(a - b) / scale <= NUMBER_TOLERANCE else "mismatch"
 
@@ -444,7 +468,8 @@ def confidence_from(tiers: list[int]) -> str:
 
 
 def apply_guard_rails(
-    judgement: Judgement, evidence: list[Evidence], claim_text: str = ""
+    judgement: Judgement, evidence: list[Evidence], claim_text: str = "",
+    shape: str = "other",
 ) -> tuple[Judgement, list[dict]]:
     """Downgrade anything the evidence does not actually support.
 
@@ -529,6 +554,32 @@ def apply_guard_rails(
     elif comparison == "match":
         note("numbers_match",
              f"{judgement.claimed_value} and {judgement.evidence_value} agree")
+
+        # The one upgrade this code will ever make, and it is deliberately
+        # narrow. When the two values are DIFFERENT numbers that agree within
+        # tolerance, the only disagreement is precision: 8,848 against
+        # 8,848.86 metres is the same mountain stated to fewer decimal
+        # places, and calling that SOME CAP reads as the tool nitpicking
+        # rather than checking.
+        #
+        # It requires the values to differ. If they are identical and the
+        # judge still said partially supported, the disagreement is about
+        # something else -- the year, the scope, the person -- and that
+        # judgement is left alone.
+        a, b = first_number(judgement.claimed_value), first_number(judgement.evidence_value)
+        if (
+            judgement.verdict == "PARTIALLY_SUPPORTED"
+            and shape == "count"
+            and a is not None and b is not None and a != b
+        ):
+            # Replace the plain agreement note rather than adding a second
+            # one: one fact about the numbers, stated once.
+            checks[-1] = messages.check(
+                "numbers_match",
+                f"{judgement.claimed_value} and {judgement.evidence_value} are the same "
+                "value stated to different precision",
+            )
+            judgement.verdict = "SUPPORTED"
     # Deliberately one-directional. A mismatch is hard evidence that the claim
     # and the sources disagree. A match proves nothing on its own: "Verstappen
     # won in 2025" against "Norris won in 2025" matches on the year while
@@ -576,7 +627,7 @@ async def judge_claim(
         schema=Judgement,
         max_tokens=700,
     )
-    judgement, checks = apply_guard_rails(judgement, evidence, claim)
+    judgement, checks = apply_guard_rails(judgement, evidence, claim, shape)
     log.info(
         "judge: %s (%s)",
         judgement.verdict,
