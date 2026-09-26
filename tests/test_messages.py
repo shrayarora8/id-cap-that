@@ -167,3 +167,43 @@ def test_the_wire_format_and_the_deepgram_url_agree():
     assert f"sample_rate={messages.AUDIO_FORMAT['sample_rate']}" in url
     assert f"encoding={messages.AUDIO_FORMAT['encoding']}" in url
     assert f"channels={messages.AUDIO_FORMAT['channels']}" in url
+
+
+# --- the closed sets the page styles against --------------------------------
+
+
+def test_evidence_item_has_the_keys_the_page_renders():
+    item = m.evidence_item("E1", "https://notion.com/pricing", "Pricing", 1, "x" * 900)
+    assert set(item) == {"evidence_id", "url", "title", "tier", "text"}
+    assert len(item["text"]) == m.EVIDENCE_TEXT_CHARS, "text must be truncated server-side"
+
+
+def test_a_citation_joins_to_the_evidence_it_came_from():
+    """This join is what lets the page show a quote next to its source."""
+    items = [m.evidence_item("E1", "u", "t", 1, "some passage text")]
+    cite = m.citation("E1", "some passage text")
+    assert cite["evidence_id"] == items[0]["evidence_id"]
+    assert set(cite) == {"evidence_id", "quote"}
+
+
+def test_tiers_cover_one_to_four():
+    assert sorted(m.TIERS) == [1, 2, 3, 4]
+
+
+def test_confidence_is_a_closed_set_including_the_default():
+    assert "none" in m.CONFIDENCE_LEVELS
+    assert m.claim_verdict("c1", "SUPPORTED", "NO CAP", "s")["confidence"] in m.CONFIDENCE_LEVELS
+
+
+def test_depth_is_a_closed_set():
+    assert m.claim_verdict("c1", "SUPPORTED", "NO CAP", "s")["depth"] in m.DEPTHS
+
+
+def test_claim_detected_fields_come_from_closed_sets():
+    msg = m.claim_detected(
+        "c1", "w1", [], "q", "n", kind="world_fact", hedge="stated",
+        shape="count", checkable=True,
+    )
+    assert msg["kind"] in m.CLAIM_KINDS
+    assert msg["hedge"] in m.HEDGES
+    assert msg["shape"] in m.SHAPES

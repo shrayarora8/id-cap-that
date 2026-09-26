@@ -193,6 +193,41 @@ def claim_status(claim_id: str, stage: str, detail: str = "") -> dict[str, Any]:
     return event("claim.status", claim_id=claim_id, stage=stage, detail=detail)
 
 
+# One item in claim.evidence. Pinned here because the page renders these
+# BEFORE a verdict exists, so they are on the hot path and their shape cannot
+# be discovered by waiting to see what turns up.
+def evidence_item(
+    evidence_id: str, url: str, title: str, tier: int, text: str
+) -> dict[str, Any]:
+    """One passage, as the page receives it.
+
+    `evidence_id` is `E1`, `E2`... and is what a citation's `evidence_id`
+    joins against, so a quote can be traced to the source it came from.
+    `tier` is 1-4, see TIERS. `text` is truncated server-side.
+    """
+    return {
+        "evidence_id": evidence_id,
+        "url": url,
+        "title": title,
+        "tier": tier,
+        "text": text[:EVIDENCE_TEXT_CHARS],
+    }
+
+
+def citation(evidence_id: str, quote: str) -> dict[str, Any]:
+    """One verbatim quote, and which passage it came from.
+
+    `evidence_id` matches an item in the claim's `claim.evidence`, so the page
+    can show the quote next to its source. The quote has already been verified
+    to appear in that passage; anything unverifiable was dropped before this
+    message was built.
+    """
+    return {"evidence_id": evidence_id, "quote": quote}
+
+
+EVIDENCE_TEXT_CHARS = 400
+
+
 def claim_evidence(claim_id: str, items: list[dict[str, Any]], depth: str) -> dict[str, Any]:
     """The passages the judge is about to read, shown before the verdict so
     the user watches it work rather than waiting at a spinner.
@@ -256,6 +291,35 @@ def server_note(message: str, level: str = "info") -> dict[str, Any]:
 
 
 # --- the vocabulary, in one place so the server and the page agree ----------
+
+# Closed sets. The page may style per value and may assume nothing else
+# appears. Adding a value here is a protocol change.
+
+CLAIM_KINDS = ("world_fact", "opinion", "prediction", "fluff", "vague")
+HEDGES = ("stated", "asked", "hedged")
+SHAPES = ("count", "event", "comparison", "other")
+
+# Why a window was never sent to Claude. Free, decided in plain Python.
+SKIP_REASONS = ("empty", "small talk", "too short", "no content words")
+
+# How good the cited SOURCES are. Deliberately a separate axis from the
+# verdict: what the evidence says and how trustworthy it is are two different
+# questions, and folding them together once turned a correct contradiction
+# into a weaker verdict purely because of which domain it sat on.
+CONFIDENCE_LEVELS = ("none", "low", "medium", "high")
+
+# Source trust. 1 is a primary or reference source, 2 serious reporting,
+# 3 unknown, 4 a forum or social post.
+TIERS = {1: "primary", 2: "reputable", 3: "unknown", 4: "low trust"}
+
+# How deep the evidence under a verdict goes.
+DEPTHS = ("snippets", "pages")
+
+# Which rule in the chunker closed a window. Dev information.
+WINDOW_REASONS = (
+    "utterance_end", "max_sentences", "silence", "hard_silence",
+    "max_duration", "flush",
+)
 
 STICKERS = {
     "SUPPORTED": "NO CAP",
