@@ -53,7 +53,16 @@ DEEPGRAM_KEYTERMS = [
 # --- chunking ---------------------------------------------------------------
 WINDOW_MAX_SENTENCES = 3
 WINDOW_SILENCE_MS = 1000
-WINDOW_HARD_SILENCE_MS = 2500
+# A real stop: close whatever is pending, however unfinished.
+#
+# This is the ONLY rule that can split a sentence, because it deliberately
+# ignores is_closeable -- otherwise unpunctuated speech would sit on screen
+# forever. 2500 was too aggressive: someone talking to a demo pauses for two
+# and a half seconds mid-sentence all the time, and the split turned
+# "revolutionize the market through | cross functional synergy." into two
+# windows, the second of which was three words and got dropped as too short.
+# The buzzwords then went unflagged, which is the entire point of the feature.
+WINDOW_HARD_SILENCE_MS = 4000
 WINDOW_MAX_MS = 12_000
 WINDOW_MIN_SENTENCE_WORDS = 4
 WINDOW_MAX_WORDS_UNPUNCTUATED = 25

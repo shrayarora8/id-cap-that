@@ -67,15 +67,27 @@ def normalise(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def worth_checking(text: str) -> tuple[bool, str]:
+def worth_checking(text: str, continues_previous: bool = False) -> tuple[bool, str]:
     """Returns (send_it_to_claude, reason).
 
     The reason is shown on screen and logged, so you can always see why a
     sentence was ignored rather than wondering why nothing happened.
+
+    `continues_previous` means the last window was cut off mid-sentence, so
+    this text is the rest of that thought. The length rules must not apply to
+    it: "cross functional synergy." is three words and looks like nothing on
+    its own, but it is the payload of the sentence before it. Dropping it is
+    how a window full of buzzwords goes unflagged.
     """
     cleaned = normalise(text)
     if not cleaned:
         return False, "empty"
+
+    if continues_previous:
+        # The sorter is given the previous window as context, so it can see
+        # the whole thought even though we only have the tail of it here.
+        content = [w for w in cleaned.split() if w not in FILLER]
+        return (True, "has content") if content else (False, "no content words")
 
     # Judge sentence by sentence: a window is often several of them, and
     # "BRO. What's going on?" is two pieces of small talk rather than one

@@ -88,3 +88,29 @@ def test_it_is_conservative_about_anything_unusual():
     claim entirely."""
     allowed, _ = worth_checking("The flarn quotient exceeded nine thousand.")
     assert allowed is True
+
+
+# --- continuations ----------------------------------------------------------
+
+
+def test_the_tail_of_a_split_sentence_is_never_dropped_as_too_short():
+    """'cross functional synergy.' is three words and looks like nothing on
+    its own. It is the payload of the sentence before it. Dropping it is how
+    a window full of buzzwords goes unflagged."""
+    assert worth_checking("cross functional synergy.")[0] is False
+    assert worth_checking("cross functional synergy.", continues_previous=True)[0] is True
+
+
+def test_a_continuation_with_no_content_is_still_dropped():
+    """Being permissive about continuations must not mean paying for 'um'."""
+    allowed, reason = worth_checking("um, you know", continues_previous=True)
+    assert allowed is False
+    assert reason == "no content words"
+
+
+def test_continuation_reasons_are_still_in_the_contract():
+    from server import messages
+
+    for text in ("", "um, you know"):
+        _, reason = worth_checking(text, continues_previous=True)
+        assert reason in messages.SKIP_REASONS

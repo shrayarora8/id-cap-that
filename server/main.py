@@ -210,7 +210,7 @@ def on_window_closed(session: Session, window: Window) -> None:
 
     # The free check first. Most of a conversation is not claims, and
     # establishing that costs nothing here.
-    allowed, reason = worth_checking(window.text)
+    allowed, reason = worth_checking(window.text, window.continues_previous)
     if not allowed:
         log.info("window %s skipped: %s", window.window_id, reason)
         session.send(messages.window_skipped(window.window_id, reason))

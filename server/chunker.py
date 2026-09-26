@@ -49,6 +49,10 @@ class Window:
     segments: list[Segment]
     reason: str          # which rule closed it; invaluable when tuning
     context: str = ""    # the previous window, for resolving "it" and "they"
+    # True when the PREVIOUS window was cut off mid-sentence, so this one is
+    # the rest of that thought rather than a new one. Without this, the tail
+    # of a split sentence looks like three stray words and gets dropped.
+    continues_previous: bool = False
 
     @property
     def text(self) -> str:
@@ -74,6 +78,7 @@ class Chunker:
     started_at: float | None = None
     last_activity: float = 0.0
     last_window_text: str = ""
+    last_was_fragment: bool = False
     _count: int = 0
 
     # --- inputs -------------------------------------------------------------
@@ -142,11 +147,20 @@ class Chunker:
         So a pause only closes a window whose text ends in . ? or ! and has
         enough words to be a sentence -- with an escape hatch for speech that
         never gets punctuated at all, or we would wait forever.
+
+        The word minimum is waived when this window is the tail of a sentence
+        the previous one cut in half. "cross functional synergy." is three
+        words, which is under the minimum, but the thought genuinely is
+        finished -- the front of it is simply in the window before. Without
+        this waiver the tail cannot close on a pause at all and sits on screen
+        for another four seconds waiting for hard silence.
         """
         text = self.pending_text
         words = len(text.split())
 
         if text.endswith((".", "?", "!")):
+            if self.last_was_fragment:
+                return True
             return words >= config.WINDOW_MIN_SENTENCE_WORDS
 
         return words >= config.WINDOW_MAX_WORDS_UNPUNCTUATED
@@ -165,8 +179,12 @@ class Chunker:
             segments=self.pending,
             reason=reason,
             context=self.last_window_text,
+            continues_previous=self.last_was_fragment,
         )
         self.pending = []
         self.started_at = None
         self.last_window_text = window.text
+        # Only hard_silence and max_duration can cut a sentence in half, and
+        # when they do the next window is the rest of that sentence.
+        self.last_was_fragment = not window.text.endswith((".", "?", "!"))
         self.on_window(window)

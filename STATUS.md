@@ -5,7 +5,7 @@ sync without talking to each other constantly. **Every session updates this
 file in the same commit as the work it describes.** If it is not here, the
 other session does not know about it.
 
-Last updated: stage 5 done. Claims are found and fluff is stamped live.
+Last updated: stage 5 done, plus a chunker fix found by testing on a real voice.
 
 ---
 
@@ -51,6 +51,14 @@ sides is not a contract.
 ---
 
 ## Done, and how to verify it
+
+### Known behaviour the frontend should design for
+
+A window is a *group of phrases*, not a sentence and not a paragraph. Rendering
+one window as one `<p>` makes ordinary speech look like broken free verse,
+which is what it looked like in the first real voice test. Windows are a
+backend concept for deciding when to spend money — they are not a layout unit
+and should not be drawn as one.
 
 ### Stage 5 — claims
 

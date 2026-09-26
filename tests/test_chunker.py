@@ -227,3 +227,55 @@ def test_closing_resets_everything_for_the_next_window(setup):
     assert chunker.started_at is None
     chunker.add_segment("s2", "And a second one after it.")
     assert len(chunker.pending) == 1
+
+
+# --- fragments: the sentence that got cut in half ---------------------------
+
+
+def test_a_window_cut_mid_sentence_marks_the_next_one_as_its_continuation():
+    """The bug this pins, seen live: a 2.5s pause mid-sentence closed
+    'This product will revolutionize the market through' on hard_silence,
+    and 'cross functional synergy.' became a three-word window that the
+    pre-filter dropped as too short. The buzzwords went unflagged, which is
+    the whole feature.
+
+    hard_silence is the only rule allowed to split a sentence, so when it
+    does, the next window must be told it is the rest of a thought.
+    """
+    closed = []
+    clock = Clock()
+    chunker = Chunker(on_window=closed.append, now=clock)
+
+    chunker.add_segment("s1", "This product will revolutionize the market through")
+    clock.advance_ms(config.WINDOW_HARD_SILENCE_MS + 100)
+    chunker.tick()
+
+    assert closed[0].reason == "hard_silence"
+    assert closed[0].continues_previous is False
+
+    chunker.add_segment("s2", "cross functional synergy.")
+    chunker.utterance_end()
+
+    assert len(closed) == 2
+    assert closed[1].continues_previous is True, "the tail must know it is a tail"
+    assert closed[1].context == "This product will revolutionize the market through"
+
+
+def test_a_window_after_a_finished_sentence_is_not_a_continuation():
+    closed = []
+    clock = Clock()
+    chunker = Chunker(on_window=closed.append, now=clock)
+
+    chunker.add_segment("s1", "Messi scored 45 goals last season.")
+    chunker.utterance_end()
+    chunker.add_segment("s2", "Notion charges twenty dollars a seat.")
+    chunker.utterance_end()
+
+    assert closed[0].continues_previous is False
+    assert closed[1].continues_previous is False, "a full stop ends the thought"
+
+
+def test_hard_silence_is_long_enough_for_a_real_pause():
+    """People pause mid-sentence while talking to a demo. 2.5s was too short
+    and split sentences in half."""
+    assert config.WINDOW_HARD_SILENCE_MS >= 3500
