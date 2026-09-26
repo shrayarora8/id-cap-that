@@ -1,5 +1,91 @@
 # I'd cap that — Design System
 
+> **Status: being rewritten, decision by decision, with the user.**
+>
+> Everything below the "Superseded strawman" line was machine-written and was
+> never agreed. It is kept only so that the reasoning behind individual calls
+> can be raided where it is still useful. **Do not build from it.** The rules
+> that hold are the decisions recorded here, and nothing else.
+>
+> `web/css/tokens.css` still encodes the strawman and is also being rewritten.
+
+## The brief
+
+1. **Stripe and Apple.** Minimal, clean, classy. The governing constraint.
+2. **The transcript behaves like Spotify's lyric view** — line-level states on a
+   flat colour field, the live line lit, older lines sunk back into the field.
+   Line-level, not word-level, so the frozen contract already carries enough:
+   one `transcript.final` phrase is one line.
+3. **Red for ABSOLUTE CAP, green for NO CAP.** The other four are open.
+4. **Hover or click a claim** to reach its card and go deeper.
+5. **Sound.** Funny beeps on ABSOLUTE CAP and NO CAP.
+6. **Cache where sensible.** Efficiency is part of the experience.
+
+Audience, in priority order: the demo video (compressed, watched small), then a
+stranger poking at the live app alone with nobody narrating, then a projected
+live demo only if we place top 3. Compression eats 1px hairlines, 16% tints and
+dotted rules, so every signal has to survive re-encoding.
+
+## Decisions
+
+### 1. Surface — the reactive colour field · agreed
+
+The app is a **flat colour field with big tight type on it, and no chrome**.
+Two line states only: the live line is lit, older lines sink back toward the
+field colour. The dim state is the field pushed toward the ink, never grey.
+
+**When a verdict lands, the whole field takes its colour** — deep red for
+ABSOLUTE CAP, deep green for NO CAP — and settles back over ~1.5s.
+
+Why this and not a sticker: nothing can out-shout the entire screen changing,
+it survives video compression for free where a small badge does not, it reads
+from across a room, and it needs no rubber stamp — which is what kept the
+strawman's centrepiece incompatible with "Stripe and Apple".
+
+Only the two loud verdicts move the field. The other four resolve quietly in
+place, so the moment stays rare enough to mean something.
+
+Rejected: a near-white paper world (Stripe-clean, but a white screen is hard to
+make feel like an event on video); and a static colour field with no reaction
+(correct, but it leaves the verdict doing all the work at small sizes).
+
+Open inside this decision: the resting field hue (ink / moss / clay / sage) and
+the exact flash colours. Board 01 carries all four.
+
+### 2–10. Not yet taken
+
+Video frame · lyric emphasis · the verdict mark · type · the other four
+verdicts · claim-to-card · sound · cold start · chrome and motion budget.
+
+## Constraints that carry over from the strawman
+
+These survive because they are engineering, not taste:
+
+- **Never rebuild the transcript.** Append, move, split, mutate in place.
+  `replaceChildren` destroys text selection and scroll position.
+- **Autoscroll only while pinned**, and `overflow-anchor` so a verdict landing
+  on a line above the fold never moves the reader's place.
+- **Verdicts arrive late and out of order.** A claim from eight seconds ago can
+  resolve after two newer ones, so **a dim line must be able to light back up**
+  when its verdict finally lands. Spans stay valid however far the transcript
+  has scrolled.
+- **Name the work, never spin.** `sifting 15 of 98 passages` is the latency
+  pitch in words. A spinner throws it away.
+- **Failure must be loud.** A dead transcription connection must never look the
+  same as nobody talking — an hour was lost to exactly that.
+- **Every verdict identifiable with colour removed.** Doubly so now that the two
+  loudest are red and green.
+- `100dvh`, safe-area insets, and no text input below 16px (iOS zooms and never
+  unzooms).
+
+---
+
+# Superseded strawman
+
+Everything below this line is the unagreed machine-written draft. Kept for
+reference only.
+
+
 **Version 1.0 · phone-first · dark-primary · vanilla CSS, no build step**
 
 This document is the specification, not a mood board. Every value in it is a token

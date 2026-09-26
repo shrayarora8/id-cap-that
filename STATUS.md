@@ -39,7 +39,7 @@ sides is not a contract.
 | Stage | What | Owner | State |
 |---|---|---|---|
 | 0 | Repo, keys, **frozen contract** | backend | **done** |
-| 1 | Page shell, design system applied, PWA | frontend | not started |
+| 1 | Page shell, design system applied, PWA | frontend | **design review under way — 1 of 10 decisions taken** |
 | 2 | WebSocket, session, JS modules, typed-claim box, replay recorder | backend | **done** |
 | 3 | AudioWorklet PCM to Deepgram, HTTPS tunnel | backend | **server + browser written, needs a phone test** |
 | 4 | Chunker, pre-filter, spans (pure logic, tested) | backend | **done, 87 tests** |
@@ -138,9 +138,11 @@ reproduced exactly, and what still demos when the venue wifi dies.
 
 Anything blocking the other session goes here, with who is blocked.
 
-- **[frontend → user]** The design system in `docs/DESIGN-SYSTEM.md` is a
-  machine-written strawman. It has not been agreed. Nothing may be built from
-  it until the user has gone through it.
+- ~~**[frontend → user]** The design system is an unagreed strawman.~~
+  **Resolved.** The user is going through it round by round. Decision 1 is
+  taken; see `docs/DESIGN-SYSTEM.md`. The strawman below that file's
+  "Superseded strawman" line is dead, and so is `web/css/tokens.css` as it
+  stands. **Neither session builds from either.**
 
 ---
 
@@ -158,3 +160,14 @@ Newest last. One line per handoff between sessions.
   (raw PCM capture), `app.js` (wiring only).
   **`web/css/scaffold.css` and `web/js/render.js` are throwaway. Delete them.**
   Everything else in `web/js/` is real and should be kept.
+- `frontend` design review started with the user; boards instead of a 1,724-line
+  read. **Decision 1 (surface) taken: a flat colour field, Spotify-style
+  line states, and the whole field takes the verdict's colour on ABSOLUTE CAP
+  and NO CAP.** Recorded in `docs/DESIGN-SYSTEM.md`. Aesthetic is Stripe/Apple
+  minimal; the strawman's tilted rubber-stamp sticker is cut.
+- `frontend` taking over `web/`. Keeping `state.js`, `ws.js`, `audio.js`,
+  `pcm-worklet.js`, `app.js`; rewriting `render.js` (it calls `replaceChildren`
+  on the whole transcript, which a lyric view cannot survive) and all CSS.
+- `backend` answered all five contract questions in `b7ce18e` by pinning them in
+  `server/messages.py` rather than in prose. Evidence items, citation joins,
+  tiers, confidence and the closed vocabularies are all now in the contract.
