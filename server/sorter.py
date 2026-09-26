@@ -97,12 +97,18 @@ For each claim you find:
 character-for-character against the transcript to underline it on screen, so it \
 must appear in the window text exactly as written. Copy the smallest span that \
 contains the claim.
-- `normalized`: rewrite so it stands alone. THE SUBJECT MUST BE NAMED. Resolve \
-every pronoun using the previous window: "she dated him" becomes "Taylor Swift \
-dated Tom Holland". If you cannot work out who or what the subject is from the \
-context given, do not emit the claim at all -- an unnamed subject cannot be \
-searched for, and evidence about the wrong person will look like it settles it. \
-Make relative time explicit using today's date. Repair garbled names.
+- `normalized`: rewrite so it stands alone. THE SUBJECT MUST BE A PROPER NAME, \
+copied from the conversation. Resolve every pronoun: "she dated him" becomes \
+"Taylor Swift dated Tom Holland"; "they raised at a ten billion valuation", \
+after a sentence about Notion, becomes "Notion raised at a ten billion dollar \
+valuation".
+  NEVER substitute a description for a name. "The company", "the speaker's \
+team", "this product", "the organisation" are all WRONG -- they are unnamed \
+subjects wearing a disguise, they cannot be searched for, and the check comes \
+back empty every time. If the previous window names the company, use that name. \
+If you genuinely cannot find a name anywhere in the context, do not emit the \
+claim at all.
+  Make relative time explicit using today's date. Repair garbled names.
 - `kind`:
   - world_fact: about the outside world and checkable against sources
   - opinion: a value judgement ("our UI is beautiful")

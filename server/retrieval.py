@@ -165,7 +165,7 @@ COMMON_PAGES = {
 }
 
 
-async def search(query: str, claim: str, official_domain: str = "", on_status=None) -> list[Hit]:
+async def search(query: str, claim: str, official_domain: str = "", on_status=None, deep: bool = False) -> list[Hit]:
     """Search, tier the results, and nudge towards whoever owns the fact.
 
     When there is an official domain this fires two or three searches. They
@@ -177,7 +177,13 @@ async def search(query: str, claim: str, official_domain: str = "", on_status=No
     guesses: list[Hit] = []
 
     if official_domain:
-        queries.append(f"{query} site:{official_domain}")
+        # The site: search used to run on every claim, doubling the Firecrawl
+        # requests. At ten requests a minute that halves how many claims can
+        # be checked before everything queues, and a 22-line script generates
+        # claims far faster than that. It now runs only when asked for, which
+        # is the escalation path.
+        if deep:
+            queries.append(f"{query} site:{official_domain}")
         # A guessed URL costs nothing until something actually fetches it, and
         # it is usually right for the handful of page names people ask about.
         wanted = {

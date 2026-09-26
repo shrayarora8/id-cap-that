@@ -40,8 +40,16 @@ log = logging.getLogger("cap")
 
 # A normalised claim that still begins with a pronoun was never given a
 # subject, so there is nothing specific to search for.
+#
+# A described subject is a pronoun wearing a disguise. "The company raised at
+# a ten billion dollar valuation" passes any pronoun test and is exactly as
+# unsearchable -- it came back COULD BE CAP every time, which reads to a user
+# as the tool failing rather than as the tool never having been told who the
+# claim was about.
 UNRESOLVED_SUBJECT = re.compile(
-    r"^(he|she|it|they|we|you|his|her|their|its|this|that|these|those)\b",
+    r"^(he|she|it|they|we|you|his|her|their|its|this|that|these|those)\b"
+    r"|^the (company|speaker|team|organisation|organization|product|platform|"
+    r"business|firm|startup|author|person|user|customer)'?s?\b",
     re.IGNORECASE,
 )
 
@@ -401,6 +409,15 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
         # The judge asked to read further. This is the only path that costs
         # more than one Firecrawl credit.
         status("escalating", "snippets were thin, reading the pages")
+        if claim.official_domain:
+            # Ask the site directly, now that it is worth the extra request.
+            hits = await search(
+                claim.search_query or claim.normalized,
+                claim.normalized,
+                claim.official_domain,
+                lambda msg: status("reading", msg),
+                deep=True,
+            ) or hits
         evidence = await deepen(
             claim.normalized, hits, lambda msg: status("reading", msg)
         )
