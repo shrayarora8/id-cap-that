@@ -219,13 +219,18 @@ def _looks_checkable(text: str) -> bool:
     return bool(_FACTUAL_HINTS.search(text))
 
 
-async def _speculative_search(text: str) -> None:
-    """Warm the cache while the sorter is still reading. Failure is fine:
-    the real search runs regardless and will simply not find a cache entry."""
+async def _speculative_search(text: str):
+    """Search while the sorter is still reading, and RETURN the hits.
+
+    Warming a cache was not enough: the sorter writes a different query, so
+    the cache key never matched and the search stayed on the critical path
+    doing nothing useful. The hits themselves are what the claim job wants.
+    """
     try:
-        await search(text, text)
+        return await search(text, text)
     except Exception as exc:  # noqa: BLE001
         log.info("speculative search did not land: %s", exc)
+        return []
 
 
 def on_window_closed(session: Session, window: Window) -> None:
@@ -269,9 +274,7 @@ async def check_window(session: Session, window: Window) -> None:
     """
     speculative = None
     if _looks_checkable(window.text):
-        speculative = session.spawn(
-            _speculative_search(window.text)
-        )
+        speculative = session.spawn(_speculative_search(window.text))
 
     try:
         claims = await find_claims(window.text, window.context)
@@ -346,10 +349,10 @@ async def check_window(session: Session, window: Window) -> None:
         )
         # Its own job, so several claims resolve at once while the
         # conversation carries on.
-        session.spawn(check_claim(session, claim_id, claim))
+        session.spawn(check_claim(session, claim_id, claim, speculative))
 
 
-async def check_claim(session: Session, claim_id: str, claim) -> None:
+async def check_claim(session: Session, claim_id: str, claim, speculative=None) -> None:
     """Find evidence for one claim and judge it against that evidence.
 
     Two depths. Search snippets first: free, already relevant, one round trip,
@@ -375,12 +378,28 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
     try:
         leg = time.monotonic()
         status("searching", f"searching {claim.official_domain or 'the web'}")
-        hits = await search(
-            claim.search_query or claim.normalized,
-            claim.normalized,
-            claim.official_domain,
-            lambda msg: status("searching", msg),
-        )
+
+        # The speculative search started when the window closed, in parallel
+        # with the sorter, so by now it has almost always finished. If it
+        # found anything trustworthy we use it directly and the search leaves
+        # the critical path entirely -- which is the whole point of firing it
+        # early. A claim with an official domain still gets that one extra
+        # search, because a company's own page rarely ranks for its own facts.
+        hits = []
+        if speculative is not None:
+            with suppress(Exception):
+                hits = await speculative or []
+
+        good_enough = sum(1 for h in hits if h.tier <= 2) >= 2
+        if good_enough and not claim.official_domain:
+            log.info("claim %s: speculative search was enough", claim_id)
+        else:
+            hits = await search(
+                claim.search_query or claim.normalized,
+                claim.normalized,
+                claim.official_domain,
+                lambda msg: status("searching", msg),
+            ) or hits
         leg = mark("search", leg)
 
         evidence = snippets_as_evidence(hits)

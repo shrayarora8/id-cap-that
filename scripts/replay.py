@@ -68,6 +68,14 @@ def build_app(messages: list[dict], speed: float) -> FastAPI:
     async def index():
         return FileResponse(WEB_DIR / "index.html")
 
+    @app.get("/sw.js")
+    async def service_worker():
+        """Served explicitly because a StaticFiles mount at "/" does not pick
+        it up here the way the real server does, and a 404 puts a service
+        worker registration failure in the console -- which is noise in a
+        demo recording."""
+        return FileResponse(WEB_DIR / "sw.js", media_type="text/javascript")
+
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket) -> None:
         await ws.accept()

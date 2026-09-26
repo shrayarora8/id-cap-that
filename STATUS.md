@@ -5,7 +5,7 @@ sync without talking to each other constantly. **Every session updates this
 file in the same commit as the work it describes.** If it is not here, the
 other session does not know about it.
 
-Last updated: stage 5 done, plus a chunker fix found by testing on a real voice.
+Last updated: stage 6 done. Real verdicts against the live web.
 
 ---
 
@@ -44,13 +44,41 @@ sides is not a contract.
 | 3 | AudioWorklet PCM to Deepgram, HTTPS tunnel | backend | **server + browser written, needs a phone test** |
 | 4 | Chunker, pre-filter, spans (pure logic, tested) | backend | **done, 87 tests** |
 | 5 | LLM cache, sorter, claims underline live | backend | **done** |
-| 6 | Snippet-first retrieval, judge, guard rails | backend | not started |
+| 6 | Snippet-first retrieval, judge, guard rails | backend | **done** |
 | 7 | Escalation ladder, Moss deep path, budget pools | backend | not started |
 | 8 | Design polish, BS index, demo mode, pre-warm | frontend | not started |
 
 ---
 
 ## Done, and how to verify it
+
+### Stage 6 — real verdicts
+
+```bash
+.venv/bin/python scripts/watch_messages.py "Notion charges five hundred dollars per user per month."
+```
+
+Verified live: that one returns **ABSOLUTE CAP** with a quote from notion.com.
+"Usain Bolt ran the 100 metres in 9.58 seconds" returns **NO CAP**.
+
+**Measured latency, end of sentence to verdict: 7.6s.** Not the 4s target, and
+the breakdown says why:
+
+| Leg | Time |
+|---|---|
+| transcript final | 0.4s |
+| window closes (1.0s silence rule) | 1.1s |
+| sorter | 1.7s |
+| search | 1.3s |
+| judge | 3.2s |
+
+Two sequential Claude calls are 5s of it. The judge is the biggest single leg
+and the most variable — measured between 2.7s and 6.5s for the same size of
+output. Cutting `max_tokens` from 1200 to 700 roughly halved it.
+
+**Firecrawl spend: 1–3 credits per claim**, against 5–9 in the previous build,
+because snippets settle most claims and pages are fetched only when the judge
+says its evidence was too thin.
 
 ### Known behaviour the frontend should design for
 

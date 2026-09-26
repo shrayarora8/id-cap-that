@@ -166,10 +166,18 @@ COMMON_PAGES = {
 
 
 async def search(query: str, claim: str, official_domain: str = "", on_status=None) -> list[Hit]:
-    """Search, tier the results, and nudge towards whoever owns the fact."""
-    hits = await _search_once(query, claim, on_status)
+    """Search, tier the results, and nudge towards whoever owns the fact.
+
+    When there is an official domain this fires two or three searches. They
+    used to run one after another, which cost nearly two seconds to do under
+    one second of work -- they do not depend on each other, so they go
+    together.
+    """
+    queries = [query]
+    guesses: list[Hit] = []
 
     if official_domain:
+        queries.append(f"{query} site:{official_domain}")
         # A guessed URL costs nothing until something actually fetches it, and
         # it is usually right for the handful of page names people ask about.
         wanted = {
@@ -180,11 +188,21 @@ async def search(query: str, claim: str, official_domain: str = "", on_status=No
             Hit(url=f"https://{official_domain}/{path}", title=path, description="", tier=1)
             for path in sorted(wanted)
         ]
-        official = await _search_once(f"{query} site:{official_domain}", claim, on_status)
-        for hit in official:
-            if official_domain in hit.url:
+
+    results = await asyncio.gather(
+        *(_search_once(q, claim, on_status) for q in queries),
+        return_exceptions=True,
+    )
+
+    hits: list[Hit] = list(guesses)
+    for batch in results:
+        if isinstance(batch, Exception):
+            log.warning("one search leg failed: %s", batch)
+            continue
+        for hit in batch:
+            if official_domain and official_domain in hit.url:
                 hit.tier = 1          # primary source for its own facts
-        hits = guesses + official + hits
+            hits.append(hit)
 
     seen, unique = set(), []
     for hit in hits:
@@ -196,6 +214,11 @@ async def search(query: str, claim: str, official_domain: str = "", on_status=No
     unique.sort(key=lambda h: h.tier)
     log.info("search %r -> %s", query, [f"{h.tier}:{h.url[:44]}" for h in unique[:6]])
     return unique
+
+
+def have_cached_search(query: str) -> bool:
+    """Did a speculative search for this text already land?"""
+    return _cache_get("search", query) is not None
 
 
 async def _search_once(query: str, claim: str, on_status=None) -> list[Hit]:
