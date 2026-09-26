@@ -442,7 +442,7 @@
     color: var(--past); text-decoration: none;
   }
   .src:hover { background: color-mix(in oklab, var(--field) 74%, var(--live)); }
-  .src .host { margin-left: auto; color: var(--faint); }
+  .src .host { color: var(--faint); }
 
   /* Trust tier: neutral fill plus border style plus a glyph, so a tier can
      never be mistaken for a verdict. Only tier 4 borrows alarm colour. */
@@ -456,7 +456,6 @@
   }
   .tier[data-t="1"] { color: var(--field); background: var(--live);  border-color: var(--live); border-style: solid; }
   .tier[data-t="2"] { color: var(--past);  background: none;         border-color: var(--past); border-style: solid; }
-  .tier[data-t="3"] { color: var(--faint); background: none;         border-color: var(--faint); border-style: dashed; }
   .tier[data-t="4"] { color: var(--v-red); background: var(--alarm-fill); border-color: var(--v-red); border-style: dotted; }
 
   /* Confidence: a filled-bar count and nothing else. Never green/amber/red —

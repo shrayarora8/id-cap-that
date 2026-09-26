@@ -251,4 +251,10 @@ up when a late verdict lands on it, because verdicts arrive out of order.
 - `frontend` internal fields never reach the UI now. Backend keeps
   `evidence_id`, `kind` and `shape` on the wire -- the join and the judge need
   them -- the page just doesn't draw them.
+- `frontend` tier badges now render only for tiers 1, 2 and 4. Tier 3 is a
+  default, not a finding, so an ordinary source is drawn as just its domain.
+- `frontend` a claim that never resolves now gives up on screen after 45s
+  rather than counting upward forever. Backend's silent-drop change made this
+  reachable; the floor is applied from the ticker too, since on a quiet screen
+  no message arrives to trigger a redraw.
 

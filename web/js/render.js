@@ -38,6 +38,14 @@ const SOFT_MAX = 150;
 
 const SLUG = (v) => String(v || "").toLowerCase();
 
+// A check can now be dropped without a terminal message: the sorter stopped
+// emitting claims it cannot resolve, and a claim already on screen has no
+// guarantee of ever being answered. Without a floor, its counter ticks up
+// forever -- the same failure the claim.error bug had, which is the worst
+// thing this UI can do given the counter is the honesty pitch. Generous,
+// because a cold check measures ~9s and the judge alone has taken 6.5s.
+const GIVE_UP_MS = 45000;
+
 // ---------------------------------------------------------------------------
 // state kept by the renderer itself (never by the server)
 
@@ -252,10 +260,17 @@ function tick() {
     ticker = null;
     return;
   }
+  let stalled = false;
   for (const n of nodes) {
     const c = state.claims.get(n.dataset.claimId);
-    if (c) n.textContent = workLabel(c);
+    if (!c) continue;
+    const t0 = startedAt.get(c.id);
+    if (t0 && performance.now() - t0 > GIVE_UP_MS) stalled = true;
+    else n.textContent = workLabel(c);
   }
+  // Nothing may arrive to trigger a render, so the floor has to be applied
+  // from here or the counter runs forever on a silent screen.
+  if (stalled) paintClaims();
 }
 
 function paintClaims() {
@@ -269,8 +284,11 @@ function paintClaims() {
     // claim.error resolves a claim without giving it a verdict: it sets a
     // sticker and nothing else. Treating that as "still checking" leaves a
     // counter ticking forever on a claim that already gave up.
-    const errored = !c.verdict && Boolean(c.sticker);
-    const checking = !c.verdict && !c.sticker && c.checkable !== false;
+    const t0 = startedAt.get(c.id);
+    const stalled = !c.verdict && !c.sticker && Boolean(t0) &&
+      performance.now() - t0 > GIVE_UP_MS;
+    const errored = (!c.verdict && Boolean(c.sticker)) || stalled;
+    const checking = !c.verdict && !c.sticker && !stalled && c.checkable !== false;
     if (checking) {
       working = true;
       if (!startedAt.has(c.id)) startedAt.set(c.id, performance.now());
@@ -292,7 +310,9 @@ function paintClaims() {
 
     const last = marks[marks.length - 1];
     const kind = checking ? "work" : "verdict";
-    const label = checking ? workLabel(c) : (c.sticker || c.verdict || "");
+    const label = checking
+      ? workLabel(c)
+      : (c.sticker || c.verdict || (stalled ? "NO ANSWER" : ""));
 
     // A claim almost never includes the sentence's full stop, so without this
     // the label lands between the words and their punctuation: "...per month
@@ -447,8 +467,13 @@ function paintTally() {
 // ---------------------------------------------------------------------------
 // the evidence card
 
-const TIER_GLYPH = { 1: "◆", 2: "◇", 3: "◌", 4: "⚠" };
-const TIER_NAME = { 1: "primary", 2: "reputable", 3: "unknown", 4: "low trust" };
+// Tier 3 is the DEFAULT -- "on neither list" -- not a finding. Drawing it as a
+// confident UNKNOWN badge tells the reader nothing while implying we looked
+// into the source and came up short. Five of them in a row made a sound
+// verdict look shaky. Only the tiers that carry information get a badge; an
+// ordinary source is just its domain, which is what a person reads anyway.
+const TIER_GLYPH = { 1: "◆", 2: "◇", 4: "⚠" };
+const TIER_NAME = { 1: "primary", 2: "reputable", 4: "low trust" };
 
 function closeCard() {
   const c = document.querySelector(".card");
@@ -552,11 +577,13 @@ function showCard(claimId) {
     a.href = e.url;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
-    const tier = document.createElement("span");
-    tier.className = "tier";
-    tier.dataset.t = String(e.tier || 3);
-    tier.textContent = `${TIER_GLYPH[e.tier] || "◌"} ${TIER_NAME[e.tier] || "unknown"}`;
-    a.appendChild(tier);
+    if (TIER_NAME[e.tier]) {
+      const tier = document.createElement("span");
+      tier.className = "tier";
+      tier.dataset.t = String(e.tier);
+      tier.textContent = `${TIER_GLYPH[e.tier]} ${TIER_NAME[e.tier]}`;
+      a.appendChild(tier);
+    }
     const name = document.createElement("span");
     name.className = "host";
     name.textContent = host(e.url);

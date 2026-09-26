@@ -135,6 +135,33 @@ many sources were read, which are things a person actually wants to know.
 Stage names are written for a reader too: `weighing evidence`, `digging
 deeper`, not `sifting` and `escalating`.
 
+### 8. A default is not a finding · agreed
+
+Tier 3 means "on neither list". It is what a source gets when nothing is known
+about it, not the result of looking. Drawn as a confident `UNKNOWN` badge it
+told the reader nothing while implying we had assessed the source and come up
+short — and five in a row made a perfectly sound verdict look shaky.
+
+Badges are drawn only for tiers **1, 2 and 4**, the ones that carry
+information. An ordinary source is just its domain. `elle.com` reads as a
+source; `UNKNOWN elle.com` reads as a warning nobody asked for.
+
+This is the same rule as decision 7, applied to a value rather than a field:
+**only say something when there is something to say.**
+
+### 9. Nothing on screen may wait forever · agreed
+
+A claim can now be dropped without a terminal message. Combined with the
+counter beside the words, that means a claim could tick upward indefinitely —
+the same failure `claim.error` caused, and the worst one this UI has, because
+the counter is the honesty pitch. If it can run forever it is not honest.
+
+There is a floor: after 45 seconds a check gives up on screen and reads
+`NO ANSWER`, styled as a failure and never as a verdict. Generous, because a
+cold check measures around 9s and the judge alone has taken 6.5s. The floor is
+applied from the ticker as well as from the message loop, because on a silent
+screen nothing else will run.
+
 ### Still to take
 
 Video frame · lyric emphasis · the verdict mark · type · the other four
