@@ -279,3 +279,33 @@ def test_we_do_not_claim_a_prompt_cache_that_cannot_fire():
         "the sorter prompt now exceeds the cache minimum -- prompt caching "
         "has become worth adding, with measurement this time"
     )
+
+
+# --- every detected claim must reach a settled state ------------------------
+
+
+def test_every_exit_from_check_claim_sends_a_terminal_message():
+    """A claim.detected that is never answered leaves the elapsed counter
+    ticking upward forever beside the words. That counter is the honesty of
+    the whole product, so a counter that can run forever is not a cosmetic
+    problem.
+
+    This reads the source rather than running the pipeline: every `return`
+    inside check_claim must be preceded by something that sends a verdict or
+    an error.
+    """
+    import inspect
+    import re as _re
+
+    from server import main
+
+    source = inspect.getsource(main.check_claim)
+    body = source[source.index("try:"):]
+
+    # Split at each return and check something terminal was sent before it.
+    segments = body.split("return")[:-1]
+    for i, segment in enumerate(segments):
+        tail = segment[-700:]
+        assert _re.search(r"send_verdict\(|claim_error\(", tail), (
+            f"return #{i + 1} in check_claim exits without a verdict or an error"
+        )

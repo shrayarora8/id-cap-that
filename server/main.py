@@ -407,6 +407,16 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
         leg = mark("escalate", leg)
 
         if not evidence:
+            # The pages would not load. The snippet verdict is the best we
+            # have, so promote it to confirmed rather than leaving it
+            # provisional forever: a claim that never reaches a settled state
+            # is a claim whose elapsed counter ticks upward with no end, and
+            # that counter is the honesty of the whole product.
+            notes.append("could not read the pages, keeping the snippet verdict")
+            send_verdict(
+                session, claim_id, judgement, stage="confirmed", depth="snippets",
+                started=started, timings=timings,
+            )
             log_result(claim_id, judgement, notes, timings)
             return
 
