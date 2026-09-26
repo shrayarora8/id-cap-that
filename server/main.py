@@ -18,7 +18,11 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config, messages
 from .chunker import Chunker, Window
+from .llm import BudgetExceeded
+from .prefilter import worth_checking
 from .session import Session
+from .sorter import find_claims
+from .spans import locate
 from .transcribe import DeepgramRelay
 
 logging.basicConfig(
@@ -196,14 +200,89 @@ def emit_final(session: Session, text: str) -> None:
 
 
 def on_window_closed(session: Session, window: Window) -> None:
-    """A window of speech is complete. For now, show it; from stage 5 this is
-    also where we decide what it costs to check."""
+    """A window of speech is complete: show it, then decide what it costs."""
     log.info("window %s closed by %s: %r", window.window_id, window.reason, window.text)
     session.send(
         messages.window_ready(
             window.window_id, window.segment_ids, window.text, window.reason
         )
     )
+
+    # The free check first. Most of a conversation is not claims, and
+    # establishing that costs nothing here.
+    allowed, reason = worth_checking(window.text)
+    if not allowed:
+        log.info("window %s skipped: %s", window.window_id, reason)
+        session.send(messages.window_skipped(window.window_id, reason))
+        return
+
+    # Its own background job, so several windows can be in flight while the
+    # conversation carries on. Awaiting here would freeze the transcript for
+    # a second and a half every time anyone said anything checkable.
+    session.spawn(check_window(session, window))
+
+
+async def check_window(session: Session, window: Window) -> None:
+    """Ask Claude what was claimed, then start a job per claim."""
+    try:
+        claims = await find_claims(window.text, window.context)
+    except BudgetExceeded as exc:
+        log.warning("budget: %s", exc)
+        session.send(messages.server_note(str(exc), level="warn"))
+        return
+    except Exception as exc:  # noqa: BLE001
+        log.exception("sorter failed")
+        session.send(messages.server_note(f"sorter failed: {exc}", level="error"))
+        return
+
+    for claim in claims:
+        claim_id = session.next_claim_id()
+
+        spans = locate(window.segments, claim.quote)
+        if not spans:
+            # Claude paraphrased instead of copying. Highlight the whole
+            # window rather than the wrong words.
+            log.info("claim %s: quote not found, highlighting the window", claim_id)
+            spans = [
+                {"segment_id": seg.segment_id, "start": 0, "end": len(seg.text)}
+                for seg in window.segments
+            ]
+
+        session.send(
+            messages.claim_detected(
+                claim_id=claim_id,
+                window_id=window.window_id,
+                spans=spans,
+                quote=claim.quote,
+                normalized=claim.normalized,
+                kind=claim.kind,
+                hedge=claim.hedge,
+                shape=claim.shape,
+                checkable=claim.checkable,
+                search_query=claim.search_query,
+                note=claim.note,
+            )
+        )
+
+        if not claim.checkable:
+            # Nothing to look up: this is already the final answer, and it
+            # lands in about two seconds without touching the internet.
+            session.send(
+                messages.claim_verdict(
+                    claim_id=claim_id,
+                    verdict="NOT_FACT_CHECKABLE",
+                    sticker=messages.STICKERS["NOT_FACT_CHECKABLE"],
+                    summary=claim.note or "nothing here that evidence could settle",
+                    depth="snippets",
+                )
+            )
+            continue
+
+        # Stage 6 fetches evidence and judges. Until then say so honestly,
+        # rather than leaving the claim pulsing forever.
+        session.send(
+            messages.claim_status(claim_id, "queued", "evidence check not built yet")
+        )
 
 
 # --- the microphone ---------------------------------------------------------

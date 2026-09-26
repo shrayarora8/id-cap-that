@@ -5,7 +5,7 @@ sync without talking to each other constantly. **Every session updates this
 file in the same commit as the work it describes.** If it is not here, the
 other session does not know about it.
 
-Last updated: stage 4 chunker done. Stage 3 needs a phone test.
+Last updated: stage 5 done. Claims are found and fluff is stamped live.
 
 ---
 
@@ -42,8 +42,8 @@ sides is not a contract.
 | 1 | Page shell, design system applied, PWA | frontend | not started |
 | 2 | WebSocket, session, JS modules, typed-claim box, replay recorder | backend | **done** |
 | 3 | AudioWorklet PCM to Deepgram, HTTPS tunnel | backend | **server + browser written, needs a phone test** |
-| 4 | Chunker, pre-filter, spans (pure logic, tested) | backend | **chunker done (18 tests); pre-filter and spans next** |
-| 5 | LLM cache, sorter, claims underline live | backend | not started |
+| 4 | Chunker, pre-filter, spans (pure logic, tested) | backend | **done, 87 tests** |
+| 5 | LLM cache, sorter, claims underline live | backend | **done** |
 | 6 | Snippet-first retrieval, judge, guard rails | backend | not started |
 | 7 | Escalation ladder, Moss deep path, budget pools | backend | not started |
 | 8 | Design polish, BS index, demo mode, pre-warm | frontend | not started |
@@ -51,6 +51,27 @@ sides is not a contract.
 ---
 
 ## Done, and how to verify it
+
+### Stage 5 — claims
+
+```bash
+.venv/bin/python scripts/watch_messages.py "Messi scored 45 goals last season." "This will revolutionize the market through synergy." "How's it going?"
+```
+
+Claims are found and underlined; fluff gets WORD SALAD in about 1.4s without
+touching the internet; small talk is skipped for nothing. Checkable claims sit
+at `queued` until stage 6 exists.
+
+Sorter: ~1.5s, ~$0.002 a call, one call per window.
+
+**Prompt caching does not work here and has been removed.** Haiku 4.5 needs a
+4096-token prefix before Anthropic will cache it — the highest minimum of any
+current model, and not monotonic across generations. Our system prompts are
+roughly 640 and 1100 tokens, so a `cache_control` block was accepted, did
+nothing, and reported zero cached tokens on every call, with no error. The
+per-model table and the reasoning are in `server/llm.py`. A test fails if the
+sorter prompt ever grows past the minimum, at which point it becomes worth
+revisiting with measurement.
 
 ### Stage 4 — the chunker
 

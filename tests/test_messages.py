@@ -263,3 +263,19 @@ def test_the_fixture_covers_the_three_branches_the_ui_cannot_otherwise_reach():
 
     assert any(r["type"] == "claim.error" for r in rows)
     assert any(r["type"] == "budget.update" and r["exhausted"] for r in rows)
+
+
+def test_we_do_not_claim_a_prompt_cache_that_cannot_fire():
+    """Haiku 4.5 needs a 4096-token prefix before Anthropic will cache it, and
+    both our system prompts are far shorter. A cache_control block below the
+    minimum is accepted, does nothing, and reports zero cached tokens forever
+    -- with no error. Measured at 0 across every call before it was removed."""
+    from server import config, llm, sorter
+
+    minimum = llm.CACHE_MINIMUM_TOKENS[config.SORTER_MODEL]
+    # ~4 characters per token is the usual rough conversion.
+    estimated_tokens = len(sorter.SYSTEM) / 4
+    assert estimated_tokens < minimum, (
+        "the sorter prompt now exceeds the cache minimum -- prompt caching "
+        "has become worth adding, with measurement this time"
+    )
