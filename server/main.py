@@ -203,36 +203,6 @@ def emit_final(session: Session, text: str) -> None:
         session.chunker.add_segment(segment_id, text)
 
 
-# Cheap textual test for "is a search plausibly worth starting before we know
-# what the claim is". Deliberately crude: it only has to be right often enough
-# that the wasted searches cost less than the saved seconds.
-_FACTUAL_HINTS = re.compile(
-    r"\d|\bpercent\b|\bmost\b|\bbiggest\b|\bfirst\b|\bever\b|"
-    r"\bcosts?\b|\bcharges?\b|\bworth\b|\bwon\b|\bscored\b|\bsold\b",
-    re.IGNORECASE,
-)
-
-
-def _looks_checkable(text: str) -> bool:
-    """A number, a superlative or a factual verb. Proper nouns alone are not
-    enough -- "I think Bruno is a good dog" has one and is not checkable."""
-    return bool(_FACTUAL_HINTS.search(text))
-
-
-async def _speculative_search(text: str):
-    """Search while the sorter is still reading, and RETURN the hits.
-
-    Warming a cache was not enough: the sorter writes a different query, so
-    the cache key never matched and the search stayed on the critical path
-    doing nothing useful. The hits themselves are what the claim job wants.
-    """
-    try:
-        return await search(text, text)
-    except Exception as exc:  # noqa: BLE001
-        log.info("speculative search did not land: %s", exc)
-        return []
-
-
 def on_window_closed(session: Session, window: Window) -> None:
     """A window of speech is complete: show it, then decide what it costs."""
     log.info("window %s closed by %s: %r", window.window_id, window.reason, window.text)
@@ -272,10 +242,6 @@ async def check_window(session: Session, window: Window) -> None:
     the speculative search is wasted: one credit, against nearly two seconds
     off every verdict that does happen.
     """
-    speculative = None
-    if _looks_checkable(window.text):
-        speculative = session.spawn(_speculative_search(window.text))
-
     try:
         claims = await find_claims(window.text, window.context)
     except BudgetExceeded as exc:
@@ -288,6 +254,13 @@ async def check_window(session: Session, window: Window) -> None:
         return
 
     for claim in claims:
+        # An opinion, an aside or a prediction in ordinary conversation is not
+        # worth marking at all. Only buzzwords earn WORD SALAD, because a
+        # sticker that lands on everything means nothing.
+        if not claim.checkable and claim.kind != "fluff":
+            log.info("not surfacing %s claim: %r", claim.kind, claim.quote[:50])
+            continue
+
         claim_id = session.next_claim_id()
 
         spans = locate(window.segments, claim.quote)
@@ -317,8 +290,11 @@ async def check_window(session: Session, window: Window) -> None:
         )
 
         if not claim.checkable:
-            # Nothing to look up: this is already the final answer, and it
-            # lands in about two seconds without touching the internet.
+            # WORD SALAD is for corporate buzzwords -- that is the joke, and
+            # it only works when it is rare. Stamping it on every opinion and
+            # aside ("taking too long", "this is not working") makes the
+            # system look like it is labelling speech at random, which is
+            # exactly how it looked in the first long conversation.
             session.send(
                 messages.claim_verdict(
                     claim_id=claim_id,
@@ -349,10 +325,10 @@ async def check_window(session: Session, window: Window) -> None:
         )
         # Its own job, so several claims resolve at once while the
         # conversation carries on.
-        session.spawn(check_claim(session, claim_id, claim, speculative))
+        session.spawn(check_claim(session, claim_id, claim))
 
 
-async def check_claim(session: Session, claim_id: str, claim, speculative=None) -> None:
+async def check_claim(session: Session, claim_id: str, claim) -> None:
     """Find evidence for one claim and judge it against that evidence.
 
     Two depths. Search snippets first: free, already relevant, one round trip,
@@ -379,27 +355,12 @@ async def check_claim(session: Session, claim_id: str, claim, speculative=None) 
         leg = time.monotonic()
         status("searching", f"searching {claim.official_domain or 'the web'}")
 
-        # The speculative search started when the window closed, in parallel
-        # with the sorter, so by now it has almost always finished. If it
-        # found anything trustworthy we use it directly and the search leaves
-        # the critical path entirely -- which is the whole point of firing it
-        # early. A claim with an official domain still gets that one extra
-        # search, because a company's own page rarely ranks for its own facts.
-        hits = []
-        if speculative is not None:
-            with suppress(Exception):
-                hits = await speculative or []
-
-        good_enough = sum(1 for h in hits if h.tier <= 2) >= 2
-        if good_enough and not claim.official_domain:
-            log.info("claim %s: speculative search was enough", claim_id)
-        else:
-            hits = await search(
-                claim.search_query or claim.normalized,
-                claim.normalized,
-                claim.official_domain,
-                lambda msg: status("searching", msg),
-            ) or hits
+        hits = await search(
+            claim.search_query or claim.normalized,
+            claim.normalized,
+            claim.official_domain,
+            lambda msg: status("searching", msg),
+        )
         leg = mark("search", leg)
 
         evidence = snippets_as_evidence(hits)

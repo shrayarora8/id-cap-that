@@ -86,8 +86,22 @@ def worth_checking(text: str, continues_previous: bool = False) -> tuple[bool, s
     if continues_previous:
         # The sorter is given the previous window as context, so it can see
         # the whole thought even though we only have the tail of it here.
+        #
+        # But the waiver still needs a floor. With none, "Fifty seconds." went
+        # through as a claim, the search found a Lisbon restaurant of that
+        # name, and the verdict was a confident NO CAP about a lift. Two
+        # content words is the smallest thing that can carry a subject and an
+        # assertion between them.
         content = [w for w in cleaned.split() if w not in FILLER]
-        return (True, "has content") if content else (False, "no content words")
+        if not content:
+            return False, "no content words"
+        # Three, not two: "Fifty seconds." has two content words and is
+        # still a fragment. Three is the smallest thing that reliably carries
+        # a subject and something said about it ("cross functional synergy",
+        # "costs twenty dollars").
+        if len(content) < 3:
+            return False, "too short"
+        return True, "has content"
 
     # Judge sentence by sentence: a window is often several of them, and
     # "BRO. What's going on?" is two pieces of small talk rather than one

@@ -285,6 +285,43 @@ def verify_citations(
     return good, bad
 
 
+# How much of the claim's own vocabulary must appear in the passage that is
+# supposed to settle it.
+#
+# The bug this exists for: someone said "Fifty seconds." as a fragment. The
+# sorter treated it as a claim, the search found a Lisbon restaurant called
+# Fifty Seconds, a passage said "a lift takes exactly 50 seconds", and the
+# judge returned NO CAP. Every individual step behaved correctly and the
+# result was nonsense, because nothing ever asked whether the evidence was
+# about the same subject as the claim.
+#
+# A verdict may only stand on a passage that shares the claim's distinctive
+# words. This is cheap, it is in code rather than in the prompt, and it fails
+# in the safe direction: the verdict drops to INSUFFICIENT_EVIDENCE.
+MIN_SUBJECT_OVERLAP = 0.34
+
+
+def evidence_is_about_the_claim(claim: str, citations: list[Citation], evidence: list[Evidence]) -> bool:
+    """Does any cited passage actually share the claim's subject?"""
+    from .sources import keywords
+
+    wanted = keywords(claim)
+    if len(wanted) < 2:
+        # Too few distinctive words to judge relevance either way. A claim
+        # this thin is not something we should be answering at all.
+        return False
+
+    by_id = {item.evidence_id: item for item in evidence}
+    for citation in citations:
+        item = by_id.get(citation.evidence_id)
+        if not item:
+            continue
+        overlap = len(wanted & keywords(item.text)) / len(wanted)
+        if overlap >= MIN_SUBJECT_OVERLAP:
+            return True
+    return False
+
+
 NEEDS_CITATION = {"SUPPORTED", "CONTRADICTED", "PARTIALLY_SUPPORTED", "DISPUTED"}
 
 WORD_NUMBERS = {
@@ -366,7 +403,7 @@ def confidence_from(tiers: list[int]) -> str:
 
 
 def apply_guard_rails(
-    judgement: Judgement, evidence: list[Evidence]
+    judgement: Judgement, evidence: list[Evidence], claim_text: str = ""
 ) -> tuple[Judgement, list[str]]:
     """Downgrade anything the evidence does not actually support.
 
@@ -398,6 +435,17 @@ def apply_guard_rails(
     if judgement.verdict in NEEDS_CITATION and not good:
         notes.append("no verifiable quote, so the verdict cannot stand")
         judgement.verdict = "INSUFFICIENT_EVIDENCE"
+
+    # A real quote from a page about something else is not evidence.
+    # Skipped when the caller did not say what the claim was: we cannot judge
+    # relevance against nothing, and guessing would fail in the unsafe
+    # direction. Production always passes it.
+    if claim_text and judgement.verdict in NEEDS_CITATION and not evidence_is_about_the_claim(
+        claim_text, judgement.citations, evidence
+    ):
+        notes.append("the cited passage is not about this claim")
+        judgement.verdict = "INSUFFICIENT_EVIDENCE"
+        judgement.citations = []
 
     comparison = compare_values(judgement.claimed_value, judgement.evidence_value)
     if comparison == "mismatch" and judgement.verdict in {"SUPPORTED", "PARTIALLY_SUPPORTED"}:
@@ -441,6 +489,6 @@ async def judge_claim(
         schema=Judgement,
         max_tokens=700,
     )
-    judgement, notes = apply_guard_rails(judgement, evidence)
+    judgement, notes = apply_guard_rails(judgement, evidence, claim)
     log.info("judge: %s (%s)", judgement.verdict, "; ".join(notes) or "clean")
     return judgement, notes

@@ -140,7 +140,7 @@ def test_a_number_mismatch_forces_a_contradiction():
         evidence_value="20 dollars per seat per month",
         citations=[Citation(evidence_id="E1", quote="Notion Business costs twenty dollars per seat per month")],
     )
-    result, notes = apply_guard_rails(j, evidence)
+    result, notes = apply_guard_rails(j, evidence, "Notion Business costs five hundred dollars per seat per month.")
     assert result.verdict == "CONTRADICTED"
     assert any("real" in n for n in notes)
 
@@ -186,7 +186,7 @@ def test_a_paraphrased_quote_is_recovered_from_the_passage():
         evidence_value="20 dollars",
         citations=[Citation(evidence_id="E1", quote="Business costs $20 a seat monthly")],
     )
-    result, notes = apply_guard_rails(j, evidence)
+    result, notes = apply_guard_rails(j, evidence, "The Notion Business plan costs 500 dollars per seat each month.")
     assert result.verdict == "CONTRADICTED"
     assert result.citations and "20 dollars per seat" in result.citations[0].quote
     assert any("recovered" in n for n in notes)
@@ -228,7 +228,7 @@ def test_a_low_trust_source_does_not_weaken_the_verdict():
         verdict="CONTRADICTED",
         citations=[Citation(evidence_id="E1", quote="the price is twenty dollars a seat per month")],
     )
-    result, _ = apply_guard_rails(j, evidence)
+    result, _ = apply_guard_rails(j, evidence, "The price is five hundred dollars a seat per month.")
     assert result.verdict == "CONTRADICTED", "the verdict is untouched"
     assert result.confidence == "low", "the source quality is reported separately"
 
@@ -239,5 +239,47 @@ def test_confidence_reflects_only_the_sources_actually_cited():
         ev("E2", "A forum post that was retrieved but never cited by the judge.", tier=4),
     ]
     j = judgement(citations=[Citation(evidence_id="E1", quote="A wikipedia sentence long enough")])
-    result, _ = apply_guard_rails(j, evidence)
+    result, _ = apply_guard_rails(j, evidence, "A wikipedia sentence long enough to be a real citation.")
     assert result.confidence == "high"
+
+
+# --- is the evidence even about the claim? ----------------------------------
+
+
+def test_a_real_quote_from_an_unrelated_page_is_not_evidence():
+    """The bug this pins, seen live. Someone said the fragment "Fifty
+    seconds." The sorter made it a claim, the search found a Lisbon
+    restaurant called Fifty Seconds, a passage genuinely said "a lift takes
+    exactly 50 seconds", the quote verified, and the verdict was NO CAP.
+
+    Every step behaved correctly and the result was nonsense, because nothing
+    asked whether the evidence was about the same subject as the claim."""
+    evidence = [ev("E1", "Access is via a lift that takes exactly 50 seconds to reach the top, hence the name.",
+                   tier=3, url="https://guide.michelin.com/x")]
+    j = judgement(
+        verdict="SUPPORTED",
+        citations=[Citation(evidence_id="E1", quote="a lift that takes exactly 50 seconds to reach the top")],
+    )
+    result, notes = apply_guard_rails(j, evidence, "The process took fifty seconds.")
+    assert result.verdict == "INSUFFICIENT_EVIDENCE"
+    assert any("not about this claim" in n for n in notes)
+    assert result.citations == []
+
+
+def test_evidence_on_the_same_subject_is_kept():
+    evidence = [ev("E1", "Taylor Swift has won 14 Grammy Awards including a record four Album of the Year wins.")]
+    j = judgement(
+        verdict="CONTRADICTED",
+        citations=[Citation(evidence_id="E1", quote="Taylor Swift has won 14 Grammy Awards")],
+    )
+    result, _ = apply_guard_rails(j, evidence, "Taylor Swift has won 28 Grammy Awards.")
+    assert result.verdict == "CONTRADICTED"
+
+
+def test_a_claim_with_almost_no_distinctive_words_cannot_be_settled():
+    """If there is nothing to match on, we cannot show the evidence is
+    relevant, so the honest answer is that we do not know."""
+    evidence = [ev("E1", "Some passage that happens to contain the word here somewhere.")]
+    j = judgement(verdict="SUPPORTED", citations=[Citation(evidence_id="E1", quote="Some passage that happens to contain")])
+    result, _ = apply_guard_rails(j, evidence, "It was.")
+    assert result.verdict == "INSUFFICIENT_EVIDENCE"

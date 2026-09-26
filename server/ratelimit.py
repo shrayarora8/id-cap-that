@@ -17,6 +17,10 @@ import time
 from collections import deque
 
 
+class RateLimited(RuntimeError):
+    """A slot would take longer to arrive than the answer is worth."""
+
+
 class RateLimiter:
     """Allow `per_minute` acquisitions in any rolling 60 seconds."""
 
@@ -42,14 +46,24 @@ class RateLimiter:
             return 0.0
         return max(0.0, 60.0 - (now - self._taken[0]))
 
-    async def acquire(self) -> float:
+    async def acquire(self, max_wait: float | None = None) -> float:
         """Wait for a slot. Returns how long it waited, so the caller can say so.
 
-        The lock is held across the sleep on purpose: without it, ten
+        Raises RateLimited when a slot would take longer than `max_wait`.
+        That ceiling exists because waiting indefinitely was far worse than
+        failing: a claim simply stopped for most of a minute with nothing on
+        screen explaining it. A claim that takes a minute is not a
+        fact-checker, it is a hang.
+
+        The lock is held across the sleep on purpose: without it ten
         coroutines all measure the same wait, all sleep the same amount, and
         all wake together to blow the limit at once.
         """
         async with self._lock:
+            if max_wait is not None and self.wait_time() > max_wait:
+                raise RateLimited(
+                    f"no search slot for {self.wait_time():.0f}s"
+                )
             waited = 0.0
             while True:
                 delay = self.wait_time()

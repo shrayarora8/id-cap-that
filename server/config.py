@@ -81,10 +81,22 @@ PRESELECT_PASSAGES = 15
 PASSAGES_PER_SOURCE = 2
 MAX_PAGE_CHARS = 60_000
 
-# Firecrawl allows 10 requests a minute. We stay under it deliberately rather
-# than discovering it through 429s in front of an audience: a demo can burn a
-# minute's allowance in twenty seconds.
-FIRECRAWL_PER_MINUTE = 8
+# Firecrawl allows 10 requests a minute.
+#
+# This was set to 8 "to be safe" and it was the worst bug in the build. The
+# limiter waits for a slot rather than failing, so once the bucket was empty
+# a claim simply stopped for up to sixty seconds with nothing on screen
+# explaining it. Measured live: 54 seconds for a Taylor Swift claim. Three
+# things caused the bucket to empty that fast -- a speculative search on every
+# window (now deleted, it never saved any time), a second search whenever the
+# claim had an official domain (now conditional), and this being under the
+# real limit for no reason.
+FIRECRAWL_PER_MINUTE = 10
+
+# Waiting longer than this for a slot is worse than answering without the
+# extra source. A claim that takes a minute is not a fact-checker, it is a
+# hang, and the demo is the product.
+MAX_RATE_LIMIT_WAIT_S = 6.0
 
 # How many times one claim may escalate before we accept the evidence we have.
 MAX_ESCALATIONS = 1

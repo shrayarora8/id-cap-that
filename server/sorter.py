@@ -122,8 +122,19 @@ live on its own site; a league's results live on the league's site. Bare domain 
 only, and empty if no single organisation owns the answer.
 
 Rules:
-- Split compound sentences into separate claims: "Retention is 94% and NPS is 60" \
-is two claims.
+- A claim ASSERTS something. It needs a subject and something said about it. \
+A bare fragment is not a claim, however factual the words look: "Fifty \
+seconds.", "Per user.", "About twenty dollars." and "The market" assert \
+nothing on their own. Return an empty list rather than inventing the sentence \
+they might have belonged to. This matters: a fragment sent to a search engine \
+finds a page about something else entirely, and the answer is confident \
+nonsense.
+- Split a sentence into separate claims ONLY when it genuinely asserts two \
+independent things: "Retention is 94% and NPS is 60" is two claims. A single \
+statement is ONE claim however long it is -- "Max Verstappen holds the record \
+for the most championships" is one claim, not three. Overlapping claims from \
+one statement produce several stickers on the same words, which reads as the \
+system stuttering.
 - Ignore small talk, filler and incomplete fragments entirely.
 - If the window contains no claims of any kind, return an empty list.
 - Do not invent claims that were not said.

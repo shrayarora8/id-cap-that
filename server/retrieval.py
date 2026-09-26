@@ -37,7 +37,7 @@ from typing import Callable
 import httpx
 
 from . import config
-from .ratelimit import RateLimiter
+from .ratelimit import RateLimited, RateLimiter
 from .sources import Passage, canonical, chunk_page, preselect, tier_for
 
 log = logging.getLogger(__name__)
@@ -136,7 +136,7 @@ async def _post(url: str, payload: dict, on_status=None) -> httpx.Response:
     """
     global _credits_used
 
-    waited = await _limiter.acquire()
+    waited = await _limiter.acquire(max_wait=config.MAX_RATE_LIMIT_WAIT_S)
     if waited > 0.5 and on_status:
         on_status(f"waiting {waited:.0f}s for a search slot")
 

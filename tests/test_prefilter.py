@@ -114,3 +114,16 @@ def test_continuation_reasons_are_still_in_the_contract():
     for text in ("", "um, you know"):
         _, reason = worth_checking(text, continues_previous=True)
         assert reason in messages.SKIP_REASONS
+
+
+def test_a_two_word_fragment_is_never_checked_even_as_a_continuation():
+    """'Fifty seconds.' went through as a claim, the search found a Lisbon
+    restaurant of that name, and the verdict was a confident NO CAP about a
+    lift. A fragment asserts nothing and must not reach a search engine."""
+    assert worth_checking("Fifty seconds.", continues_previous=True)[0] is False
+    assert worth_checking("Per user.", continues_previous=True)[0] is False
+
+
+def test_a_real_continuation_still_goes_through():
+    assert worth_checking("cross functional synergy.", continues_previous=True)[0] is True
+    assert worth_checking("costs twenty dollars a seat.", continues_previous=True)[0] is True
