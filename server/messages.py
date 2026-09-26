@@ -1,0 +1,290 @@
+"""The contract. Every message that crosses the WebSocket is defined here.
+
+The page is a dumb renderer. It holds a little state, applies each message to
+that state, and redraws. Nothing is computed in the browser. That is what lets
+you watch the entire system behave as a stream of text, with no browser open,
+and it is what lets the two halves be built independently.
+
+Everything is named by an id, and ids are stable forever:
+
+    s7   a phrase      (one final result from Deepgram)
+    w3   a window      (a group of phrases big enough to be a thought)
+    c2   a claim       (something checkable, found inside a window)
+    E1   a passage     (one piece of evidence the judge is allowed to read)
+
+Stability is the whole point. A verdict that arrives eight seconds late still
+finds the exact characters it belongs to, in a transcript that has scrolled on
+without it.
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Any, Literal
+
+# Bumped whenever a message shape changes incompatibly. The page checks it on
+# connect and tells you to hard-refresh instead of failing in a confusing way
+# three messages later.
+PROTOCOL_VERSION = 1
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def event(message_type: str, /, **fields: Any) -> dict[str, Any]:
+    """Build one outgoing message. `seq` is stamped by the session on send.
+
+    The first parameter is `message_type` and not `kind` or `type` because
+    both of those are field names we actually send (a claim has a `kind`), and
+    **fields would collide with the parameter name. That collision raises
+    TypeError inside a background task where nobody retrieves the exception,
+    so claims silently stop appearing and there is no traceback anywhere.
+    It cost an afternoon once. Do not "tidy" this name.
+
+    The `/` makes it positional-only, which closes the hole completely: even a
+    message that genuinely carries a field called `message_type` now lands in
+    **fields instead of colliding with the parameter.
+    """
+    return {"type": message_type, "ts": _now_ms(), **fields}
+
+
+# --- session ----------------------------------------------------------------
+
+
+def session_ready(
+    session_id: str,
+    protocol_version: int,
+    budget: dict[str, Any],
+    audio: dict[str, Any],
+) -> dict[str, Any]:
+    """First message on every connection. Tells the page who it is, what the
+    audio format must be, and how much demo budget it has to spend."""
+    return event(
+        "session.ready",
+        session_id=session_id,
+        protocol_version=protocol_version,
+        budget=budget,
+        audio=audio,
+    )
+
+
+def budget_update(
+    claims_left: int,
+    claims_cap: int,
+    pool: str,
+    exhausted: bool = False,
+    note: str = "",
+) -> dict[str, Any]:
+    """The live 'demo credits: 9 left' counter.
+
+    `pool` is 'reserved' (the demo device), 'public' (a visitor) or 'byok'
+    (their own keys, unlimited and not counted).
+    """
+    return event(
+        "budget.update",
+        claims_left=claims_left,
+        claims_cap=claims_cap,
+        pool=pool,
+        exhausted=exhausted,
+        note=note,
+    )
+
+
+# --- transcript -------------------------------------------------------------
+
+
+def transcript_interim(text: str) -> dict[str, Any]:
+    """Draft words. Deepgram will revise them. Display only, never processed:
+    chunking or highlighting on text that is about to change means anchoring
+    to characters that will not exist in a second."""
+    return event("transcript.interim", text=text)
+
+
+def transcript_final(segment_id: str, text: str) -> dict[str, Any]:
+    """Locked-in words. Every offset in the system is relative to one of these."""
+    return event("transcript.final", segment_id=segment_id, text=text)
+
+
+def window_ready(
+    window_id: str, segment_ids: list[str], text: str, reason: str
+) -> dict[str, Any]:
+    """A group of phrases, closed by one of the chunker's rules. `reason` says
+    which rule, which is how you tune the chunker without guessing."""
+    return event(
+        "window.ready",
+        window_id=window_id,
+        segment_ids=segment_ids,
+        text=text,
+        reason=reason,
+    )
+
+
+def window_skipped(window_id: str, reason: str) -> dict[str, Any]:
+    """The free pre-filter decided this could not contain a claim. Shown to
+    the user, because explaining the silence is better than silence."""
+    return event("window.skipped", window_id=window_id, reason=reason)
+
+
+# --- claims -----------------------------------------------------------------
+
+
+def claim_detected(
+    claim_id: str,
+    window_id: str,
+    spans: list[dict[str, Any]],
+    quote: str,
+    normalized: str,
+    kind: str,
+    hedge: str,
+    shape: str,
+    checkable: bool,
+    search_query: str = "",
+    note: str = "",
+) -> dict[str, Any]:
+    """A claim was found. `spans` say which characters of which phrases to
+    underline: [{segment_id, start, end}, ...]. A claim can straddle two
+    phrases, so it contributes a span to each one it touches."""
+    return event(
+        "claim.detected",
+        claim_id=claim_id,
+        window_id=window_id,
+        spans=spans,
+        quote=quote,
+        normalized=normalized,
+        kind=kind,
+        hedge=hedge,
+        shape=shape,
+        checkable=checkable,
+        search_query=search_query,
+        note=note,
+    )
+
+
+# The stages a claim passes through, in order. The page renders these as a
+# progress ladder rather than a line of changing text, so something is always
+# visibly moving even when a single stage takes three seconds.
+Stage = Literal[
+    "queued",
+    "extracting",
+    "searching",
+    "reading",
+    "sifting",
+    "judging",
+    "escalating",
+    "done",
+]
+
+STAGE_ORDER: tuple[str, ...] = (
+    "queued",
+    "extracting",
+    "searching",
+    "reading",
+    "sifting",
+    "judging",
+    "escalating",
+    "done",
+)
+
+
+def claim_status(claim_id: str, stage: str, detail: str = "") -> dict[str, Any]:
+    """Progress. `stage` is machine-readable and drives the progress ladder;
+    `detail` is the human line next to it ('reading notion.com')."""
+    return event("claim.status", claim_id=claim_id, stage=stage, detail=detail)
+
+
+def claim_evidence(claim_id: str, items: list[dict[str, Any]], depth: str) -> dict[str, Any]:
+    """The passages the judge is about to read, shown before the verdict so
+    the user watches it work rather than waiting at a spinner.
+
+    `depth` is 'snippets' or 'pages' -- the app is always honest about how
+    thin or deep the evidence under a verdict actually is.
+    """
+    return event("claim.evidence", claim_id=claim_id, items=items, depth=depth)
+
+
+def claim_verdict(
+    claim_id: str,
+    verdict: str,
+    sticker: str,
+    summary: str,
+    stage: str = "confirmed",
+    citations: list[dict[str, Any]] | None = None,
+    depth: str = "snippets",
+    took_ms: int | None = None,
+    timings: dict[str, int] | None = None,
+    correction: str = "",
+    confidence: str = "none",
+) -> dict[str, Any]:
+    """A verdict.
+
+    `stage` is 'provisional' or 'confirmed'. A provisional verdict is a fast
+    read of search snippets, on screen in about three and a half seconds and
+    labelled as a quick read. If the judge reports its evidence was too thin,
+    the claim escalates -- fetch the pages, rank the passages, judge again --
+    and a confirmed verdict replaces it in place.
+
+    `timings` is the per-stage breakdown, which is what scripts/latency.py
+    turns into a waterfall. Latency is the feature, so it is measured.
+    """
+    return event(
+        "claim.verdict",
+        claim_id=claim_id,
+        verdict=verdict,
+        sticker=sticker,
+        summary=summary,
+        stage=stage,
+        citations=citations or [],
+        depth=depth,
+        took_ms=took_ms,
+        timings=timings or {},
+        correction=correction,
+        confidence=confidence,
+    )
+
+
+def claim_error(claim_id: str, stage: str, message: str) -> dict[str, Any]:
+    """A claim could not be checked: the budget ran out, a service was down,
+    or something threw. `stage` says how far it got before it failed, so the
+    user is told which part gave up rather than just seeing nothing."""
+    return event("claim.error", claim_id=claim_id, stage=stage, message=message)
+
+
+def server_note(message: str, level: str = "info") -> dict[str, Any]:
+    """The status line. `level` is 'info', 'warn' or 'error'."""
+    return event("server.note", message=message, level=level)
+
+
+# --- the vocabulary, in one place so the server and the page agree ----------
+
+STICKERS = {
+    "SUPPORTED": "NO CAP",
+    "CONTRADICTED": "ABSOLUTE CAP",
+    "PARTIALLY_SUPPORTED": "SOME CAP",
+    "DISPUTED": "SOURCES ARE FIGHTING",
+    "INSUFFICIENT_EVIDENCE": "COULD BE CAP",
+    "NOT_FACT_CHECKABLE": "WORD SALAD",
+}
+
+VERDICTS = tuple(STICKERS)
+
+
+# --- what the page is allowed to send up ------------------------------------
+#
+#   {"type": "inject_text",    "text": "..."}   pretend the mic heard this
+#   {"type": "start_listening"}
+#   {"type": "stop_listening"}
+#   {"type": "set_keys",       "keys": {...}}   BYOK; held in memory only
+#
+# plus raw binary frames of audio: 16-bit signed PCM, 16 kHz, mono,
+# little-endian. Not WebM and not Opus, because iOS Safari will not produce
+# Opus and a container we cannot rely on is a silent failure on the one
+# device we most want this to work on.
+
+CLIENT_MESSAGES = ("inject_text", "start_listening", "stop_listening", "set_keys")
+
+AUDIO_FORMAT = {
+    "encoding": "linear16",
+    "sample_rate": 16000,
+    "channels": 1,
+}
