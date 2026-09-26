@@ -71,7 +71,7 @@ the layout viewport instead of sliding it. Both are mandatory.
 
 ## 1. Design philosophy
 
-Seven principles. Each states what it rules out, because a principle that rules
+Eight principles. Each states what it rules out, because a principle that rules
 nothing out is decoration.
 
 **1. The transcript is the product; everything else is furniture.**
@@ -174,7 +174,7 @@ need for a fifth grey, you are building the wrong layout.
 | `--accent` | `#E4FF4F` | checking state, listen button fill, focus ring | **17.32** on base |
 | `--accent-ink` | `#07090D` | text on accent | **17.76** on accent |
 | `--accent-tint` | `#2E341C` | the "checking" highlight wash (accent @16% over base, pre-composited) | text-primary on it **11.74** |
-| `--accent-dim` | `#A8BD33` | idle mic ring | 8.0 on base |
+| `--accent-dim` | `#A8BD33` | idle mic ring, idle button border | **9.25** on base |
 | `--accent-glow` | `rgba(228,255,79,.28)` | one-shot ring flash only | — |
 
 ### 2.4 The six verdicts
@@ -1709,7 +1709,7 @@ is 4.13:1, and it is a placeholder, which WCAG classifies as non-essential.
 | `--tier-1-fg` on `--tier-1-bg` | 16.67 | AAA |
 | `--tier-2-fg` on `--bg-raised` | 9.31 | AAA |
 | `--tier-3-fg` on `--bg-raised` | 5.18 | AA |
-| `--tier-4-fg` on `--tier-4-bg` | 7.49 | AAA |
+| `--tier-4-fg` on `--tier-4-bg` | 7.47 | AAA |
 | `--conf-fill` on `--bg-base` | 11.07 | AAA |
 | `--focus-ring` on `--bg-base` | 17.32 | AAA |
 | `--error-text` on `--bg-base` | 8.80 | AAA |
