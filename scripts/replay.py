@@ -35,6 +35,33 @@ from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 ROOT = Path(__file__).parent.parent
+
+class FreshStaticFiles(StaticFiles):
+    """Static files that a browser must revalidate before reusing.
+
+    StaticFiles sends no Cache-Control at all, so browsers fall back to
+    heuristic freshness and happily reuse yesterday's app.js. ES modules are
+    cached especially hard, and a query string on the HTML does not bust them
+    because the module URLs never change.
+
+    The cost of that was not theoretical. Frontend fixes landed in git and
+    never reached the phone, so the same complaints came back for hours and
+    both of us kept re-checking code that was already correct. The bug was in
+    delivery, not in either of the things we were looking at.
+
+    `no-cache` means revalidate, not "never cache": a 304 still costs almost
+    nothing, and correctness here is worth far more than a saved round trip on
+    a handful of small files.
+    """
+
+    def is_not_modified(self, response_headers, request_headers) -> bool:
+        return super().is_not_modified(response_headers, request_headers)
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
 WEB_DIR = ROOT / "web"
 RECORDINGS = ROOT / "recordings"
 
@@ -66,7 +93,9 @@ def build_app(messages: list[dict], speed: float) -> FastAPI:
 
     @app.get("/")
     async def index():
-        return FileResponse(WEB_DIR / "index.html")
+        return FileResponse(
+            WEB_DIR / "index.html", headers={"Cache-Control": "no-cache"}
+        )
 
     @app.get("/sw.js")
     async def service_worker():
@@ -74,7 +103,15 @@ def build_app(messages: list[dict], speed: float) -> FastAPI:
         it up here the way the real server does, and a 404 puts a service
         worker registration failure in the console -- which is noise in a
         demo recording."""
-        return FileResponse(WEB_DIR / "sw.js", media_type="text/javascript")
+        # Service-Worker-Allowed lets a worker served from anywhere claim the
+        # root scope. Without it some browsers reject registration with a
+        # generic "unknown error fetching the script", which looks alarming in
+        # a recording and says nothing about the real cause.
+        return FileResponse(
+            WEB_DIR / "sw.js",
+            media_type="text/javascript",
+            headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+        )
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket) -> None:
@@ -97,7 +134,7 @@ def build_app(messages: list[dict], speed: float) -> FastAPI:
         except (WebSocketDisconnect, asyncio.CancelledError):
             pass
 
-    app.mount("/", StaticFiles(directory=WEB_DIR), name="web")
+    app.mount("/", FreshStaticFiles(directory=WEB_DIR), name="web")
     return app
 
 

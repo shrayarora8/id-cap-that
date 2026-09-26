@@ -38,6 +38,33 @@ for noisy in ("httpx", "httpcore", "websockets", "anthropic", "multipart"):
 
 log = logging.getLogger("cap")
 
+class FreshStaticFiles(StaticFiles):
+    """Static files that a browser must revalidate before reusing.
+
+    StaticFiles sends no Cache-Control at all, so browsers fall back to
+    heuristic freshness and happily reuse yesterday's app.js. ES modules are
+    cached especially hard, and a query string on the HTML does not bust them
+    because the module URLs never change.
+
+    The cost of that was not theoretical. Frontend fixes landed in git and
+    never reached the phone, so the same complaints came back for hours and
+    both of us kept re-checking code that was already correct. The bug was in
+    delivery, not in either of the things we were looking at.
+
+    `no-cache` means revalidate, not "never cache": a 304 still costs almost
+    nothing, and correctness here is worth far more than a saved round trip on
+    a handful of small files.
+    """
+
+    def is_not_modified(self, response_headers, request_headers) -> bool:
+        return super().is_not_modified(response_headers, request_headers)
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 # A normalised claim that still begins with a pronoun was never given a
 # subject, so there is nothing specific to search for.
 #
@@ -70,7 +97,11 @@ async def health():
 
 @app.get("/")
 async def index():
-    return FileResponse(WEB_DIR / "index.html")
+    # no-cache here too: a stale index.html keeps pointing at the same module
+    # URLs, so the modules stay stale however fresh they are on disk.
+    return FileResponse(
+        WEB_DIR / "index.html", headers={"Cache-Control": "no-cache"}
+    )
 
 
 def _pool_for(ws: WebSocket) -> str:
@@ -562,4 +593,4 @@ async def stop_listening(session: Session) -> None:
 
 # Mounted LAST. A StaticFiles mount at "/" swallows every route declared
 # after it, so the page would load unstyled and /health would 404.
-app.mount("/", StaticFiles(directory=WEB_DIR), name="web")
+app.mount("/", FreshStaticFiles(directory=WEB_DIR), name="web")
