@@ -273,9 +273,9 @@ async def check_window(session: Session, window: Window) -> None:
         # and it cannot be searched for: "She dated Tom Holland" matches an
         # article about anyone who dated Tom Holland. That is how a Zendaya
         # page came back NO CAP for a claim about Taylor Swift.
-        if claim.checkable and UNRESOLVED_SUBJECT.match(claim.normalized.strip()):
-            log.info("claim has no named subject, not checking: %r", claim.normalized[:60])
-            continue
+        unresolved = claim.checkable and UNRESOLVED_SUBJECT.match(
+            claim.normalized.strip()
+        )
 
         # An opinion or an aside in ordinary conversation is not worth
         # marking. Buzzwords and unfalsifiable superlatives are, because
@@ -311,6 +311,24 @@ async def check_window(session: Session, window: Window) -> None:
                 note=claim.note,
             )
         )
+
+        if unresolved:
+            # Searching for "they raised at a ten billion valuation" matches
+            # any company that ever did, so we will not spend a search on it.
+            # But dropping it silently is worse: the words sit there with no
+            # mark and no explanation, and it reads as the tool missing
+            # things at random. Say what happened instead.
+            log.info("no named subject: %r", claim.normalized[:60])
+            session.send(
+                messages.claim_verdict(
+                    claim_id=claim_id,
+                    verdict="INSUFFICIENT_EVIDENCE",
+                    sticker=messages.STICKERS["INSUFFICIENT_EVIDENCE"],
+                    summary="couldn't tell who or what this is about, so there was nothing to look up",
+                    depth="snippets",
+                )
+            )
+            continue
 
         if not claim.checkable:
             # WORD SALAD is for corporate buzzwords -- that is the joke, and

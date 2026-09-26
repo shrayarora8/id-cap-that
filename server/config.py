@@ -51,7 +51,15 @@ DEEPGRAM_KEYTERMS = [
 ]
 
 # --- chunking ---------------------------------------------------------------
+# Close a window once it holds this many phrases -- but only if the thought
+# sounds finished. This used to close unconditionally, which cut sentences in
+# half while someone was talking at pace: "Taylor Swift has won 28" closed as
+# one window and "Grammys." became the next, a single word that the pre-filter
+# then dropped as too short. The claim vanished with no explanation.
 WINDOW_MAX_SENTENCES = 3
+# ...and this many regardless, or a speaker who never pauses would never be
+# checked at all.
+WINDOW_HARD_MAX_SENTENCES = 6
 WINDOW_SILENCE_MS = 1000
 # A real stop: close whatever is pending, however unfinished.
 #

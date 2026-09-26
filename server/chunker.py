@@ -94,8 +94,13 @@ class Chunker:
         self.pending.append(Segment(segment_id, text))
         self.last_activity = self.now()
 
-        if len(self.pending) >= config.WINDOW_MAX_SENTENCES:
+        # Prefer a whole sentence. Closing on a phrase count alone cuts
+        # sentences in half, and the orphaned tail is usually too small to be
+        # a claim, so the claim is lost rather than merely split.
+        if len(self.pending) >= config.WINDOW_HARD_MAX_SENTENCES:
             self.close("max_sentences")
+        elif len(self.pending) >= config.WINDOW_MAX_SENTENCES:
+            self.maybe_close("max_sentences")
 
     def utterance_end(self) -> None:
         """Deepgram says the speaker stopped. The strongest signal we get, but

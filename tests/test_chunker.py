@@ -127,6 +127,7 @@ def test_max_duration_cuts_into_a_monologue(setup, monkeypatch):
     the config this test uses.
     """
     monkeypatch.setattr(config, "WINDOW_MAX_SENTENCES", 100)
+    monkeypatch.setattr(config, "WINDOW_HARD_MAX_SENTENCES", 100)
     chunker, closed, clock = setup
 
     # Sub-second gaps so the silence rule never fires, one short unpunctuated
@@ -279,3 +280,40 @@ def test_hard_silence_is_long_enough_for_a_real_pause():
     """People pause mid-sentence while talking to a demo. 2.5s was too short
     and split sentences in half."""
     assert config.WINDOW_HARD_SILENCE_MS >= 3500
+
+
+def test_a_phrase_count_never_cuts_a_sentence_in_half():
+    """The bug this pins, seen on a phone mid-demo.
+
+    Deepgram emitted "Taylor Swift has won 28" and "Grammys." as separate
+    phrases. The third phrase arriving force-closed the window regardless of
+    punctuation, so "Grammys." became a window of one word, the pre-filter
+    dropped it as too short, and the claim disappeared with no mark and no
+    explanation. Same for "Did you know Python was released first in" /
+    "1995?".
+
+    A phrase count is a guard against a monologue, not a sentence boundary.
+    """
+    closed = []
+    chunker = Chunker(on_window=closed.append)
+
+    chunker.add_segment("s1", "Taylor Swift has won 28")
+    chunker.add_segment("s2", "Grammys.")
+    chunker.add_segment("s3", "Honestly Snowflake is")
+
+    assert not closed or "Grammys." in closed[0].text, (
+        "a sentence must not be split by the phrase count"
+    )
+    for window in closed:
+        assert window.text.strip() != "Grammys.", "the tail was orphaned again"
+
+
+def test_a_speaker_who_never_finishes_a_sentence_is_still_checked():
+    """The escape hatch: the hard cap has to fire eventually, or someone who
+    never pauses is never checked at all."""
+    closed = []
+    chunker = Chunker(on_window=closed.append)
+    for i in range(config.WINDOW_HARD_MAX_SENTENCES):
+        chunker.add_segment(f"s{i}", "and then another thing")
+    assert len(closed) == 1
+    assert closed[0].reason == "max_sentences"
