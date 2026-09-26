@@ -67,6 +67,28 @@ WINDOW_MAX_MS = 12_000
 WINDOW_MIN_SENTENCE_WORDS = 4
 WINDOW_MAX_WORDS_UNPUNCTUATED = 25
 
+# --- retrieval --------------------------------------------------------------
+# Snippet-first. A search returns titles and descriptions that are already
+# relevant and cost one credit; most claims are settled by them. Pages are
+# fetched only when the judge says its evidence was too thin, which is what
+# turns a 9-second verdict into a 4-second one and a 6-credit claim into a
+# 1-credit one.
+SEARCH_RESULTS = 6
+PAGES_TO_FETCH = 3          # only on the escalation path
+FETCH_TIMEOUT_S = 8.0
+PASSAGES_FOR_JUDGE = 5
+PRESELECT_PASSAGES = 15
+PASSAGES_PER_SOURCE = 2
+MAX_PAGE_CHARS = 60_000
+
+# Firecrawl allows 10 requests a minute. We stay under it deliberately rather
+# than discovering it through 429s in front of an audience: a demo can burn a
+# minute's allowance in twenty seconds.
+FIRECRAWL_PER_MINUTE = 8
+
+# How many times one claim may escalate before we accept the evidence we have.
+MAX_ESCALATIONS = 1
+
 # --- budget -----------------------------------------------------------------
 # Three pools. The reserved one exists so that visitors poking at the demo can
 # never starve the demo itself ten minutes before it is presented.

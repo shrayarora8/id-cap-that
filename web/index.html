@@ -1,39 +1,63 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-field="ink">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0B0D12">
+<!-- viewport-fit=cover is what makes env(safe-area-inset-*) return real numbers.
+     interactive-widget=resizes-content is what makes the on-screen keyboard
+     shrink the layout viewport instead of sliding it. Both are load-bearing. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#14161B">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>i'd cap that</title>
+<title>I'd cap that</title>
 <link rel="manifest" href="/manifest.json">
-<link rel="stylesheet" href="/css/scaffold.css">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
 
-<header>
-  <span class="wordmark">i'd cap that</span>
-  <span id="budget" class="budget"></span>
-  <span id="status" class="status">not connected</span>
-</header>
+<!-- A failed microphone or a dead transcription socket looks exactly like
+     nobody talking. It gets its own loud region, not a line of grey text. -->
+<div id="error" class="alarm" role="alert" hidden></div>
 
-<div id="error" class="error" hidden></div>
+<div class="app">
 
-<main>
-  <section id="transcript-pane">
-    <div id="transcript" class="transcript"></div>
-    <div id="interim" class="interim"></div>
-  </section>
-  <aside id="rail">
-    <div id="detail"></div>
-  </aside>
-</main>
+  <header class="topbar">
+    <span class="wordmark">I'd cap that</span>
+    <span class="tally" id="tally">
+      <span class="tly" data-k="cap"   data-zero="1"><b id="t-cap">0</b> cap</span>
+      <span class="tly" data-k="nocap" data-zero="1"><b id="t-nocap">0</b> no cap</span>
+    </span>
+    <span class="budget" id="budget"></span>
+  </header>
 
-<footer>
-  <button id="listen" class="listen">start listening</button>
-  <input id="say" type="text" placeholder="or type a claim and press enter" autocomplete="off" autocapitalize="sentences">
-</footer>
+  <!-- The transcript is the product. Everything else is furniture. -->
+  <main class="lyr" id="lyr" aria-live="off">
+    <div class="cold" id="cold">
+      <h2>Say something checkable. I'll mark the words that aren't true.</h2>
+      <p>Tap the microphone, or try one of these — no microphone needed. Every
+         claim is checked against pages fetched from the live web.</p>
+      <div class="egs">
+        <button class="eg" type="button" data-eg="Notion costs eight dollars per seat per month.">Notion costs $8 per seat per month.</button>
+        <button class="eg" type="button" data-eg="The Eiffel Tower is 324 metres tall.">The Eiffel Tower is 324 metres tall.</button>
+        <button class="eg" type="button" data-eg="Python was released in 1995.">Python was released in 1995.</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- A verdict changes what a screen reader announces exactly once, here. -->
+  <div id="announce" class="sr" aria-live="polite" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)"></div>
+
+  <footer class="foot">
+    <span class="status" id="status" data-busy="0"><span class="rotor" id="rotor">◌</span><span id="stxt">not connected</span></span>
+    <button id="mute" class="mute" type="button" aria-pressed="false" title="Sound on verdicts">Sound off</button>
+    <button id="listen" class="listen" type="button" aria-pressed="false"><span class="dot"></span>Listen</button>
+    <label for="say" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)">Type a claim to check</label>
+    <input id="say" class="say" type="text" placeholder="or type a claim and press enter" autocomplete="off" autocapitalize="sentences" enterkeyhint="send">
+  </footer>
+
+</div>
 
 <script type="module" src="/js/app.js"></script>
 </body>

@@ -39,7 +39,7 @@ sides is not a contract.
 | Stage | What | Owner | State |
 |---|---|---|---|
 | 0 | Repo, keys, **frozen contract** | backend | **done** |
-| 1 | Page shell, design system applied, PWA | frontend | **design review under way — 1 of 10 decisions taken** |
+| 1 | Page shell, design system applied, PWA | frontend | **built — lyric transcript live against replay** |
 | 2 | WebSocket, session, JS modules, typed-claim box, replay recorder | backend | **done** |
 | 3 | AudioWorklet PCM to Deepgram, HTTPS tunnel | backend | **server + browser written, needs a phone test** |
 | 4 | Chunker, pre-filter, spans (pure logic, tested) | backend | **done, 87 tests** |
@@ -179,3 +179,29 @@ Newest last. One line per handoff between sessions.
 - `backend` answered all five contract questions in `b7ce18e` by pinning them in
   `server/messages.py` rather than in prose. Evidence items, citation joins,
   tiers, confidence and the closed vocabularies are all now in the contract.
+- `frontend` stage 1 built. `web/` is the new design: flat colour field, lyric
+  transcript, the field takes the verdict's colour. Verified end to end against
+  `scripts/replay.py tests/fixtures/synthetic_session.jsonl` — claims underline
+  live, ABSOLUTE CAP lands red and struck, WORD SALAD resolves quietly, the
+  skip chip and the tally both work. Type is still a placeholder (round 2).
+
+### Stage 1 — the page
+
+```bash
+.venv/bin/python scripts/replay.py tests/fixtures/synthetic_session.jsonl
+# then open the URL it prints
+```
+
+The layout model, which is what keeps frontend and backend decoupled:
+
+- **Segments are addressable.** Every rendered run of text carries its
+  `segment_id` and its character offset, so a claim span always finds its
+  exact characters however the transcript has scrolled or regrouped.
+- **Sentences are the layout unit,** found from the punctuation `smart_format`
+  already provides. A segment straddling a sentence end becomes two chunks.
+- **Windows are neither.** `window_id` is an addressing key for
+  `window.skipped` and nothing else. Retune the chunker freely; the layout
+  cannot move.
+
+A line stays lit while it still has an unresolved claim in it, and lights back
+up when a late verdict lands on it, because verdicts arrive out of order.

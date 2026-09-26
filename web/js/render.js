@@ -1,139 +1,569 @@
-// Draws the transcript from state. Deliberately plain: the design system has
-// not been agreed yet, so this is scaffolding the frontend session replaces.
+// The lyric transcript.
 //
-// The one thing here that is NOT throwaway is how a claim is painted. A claim
-// carries spans of (segment_id, start, end), and a claim can straddle two
-// phrases, so it contributes a span to each phrase it touches. Only the last
-// span of a claim carries the sticker, or the sticker appears twice.
+// Three ideas hold this file up:
+//
+//   1. SEGMENTS ARE THE ADDRESSABLE UNIT. Claim spans are (segment_id, start,
+//      end) character offsets into one `transcript.final`, so every piece of
+//      rendered text remembers which segment it came from and at what offset.
+//   2. SENTENCES ARE THE LAYOUT UNIT. A line on screen is a sentence, found
+//      from the punctuation Deepgram's smart_format already gives us.
+//   3. WINDOWS ARE NEITHER. A window is a backend grouping that decides when
+//      we spend money. It can be half a sentence or three. Drawing one window
+//      as one paragraph is what made the first voice test look like broken
+//      free verse. window_id is used here only as an addressing key.
+//
+// Because of 1 and 2, the chunker can be retuned freely and the layout never
+// moves. Because of 3, a claim that straddles a segment or a line break still
+// finds its exact characters.
+//
+// Nothing is rebuilt that has not changed: a line is re-created only when its
+// text or its claim spans change, and a verdict landing mutates attributes in
+// place so the animation is never restarted.
 
 import { state } from "./state.js";
+import * as sound from "./sound.js";
 
 const el = (id) => document.getElementById(id);
+const lyr = () => el("lyr");
 
-function spansFor(segmentId) {
-  const found = [];
-  for (const claim of state.claims.values()) {
-    claim.spans.forEach((span, i) => {
-      if (span.segment_id === segmentId) {
-        found.push({ claim, span, isLast: i === claim.spans.length - 1 });
-      }
-    });
+const SEG_N = (id) => Number(String(id).replace(/^\D+/, "")) || 0;
+
+// Sentence end: terminal punctuation, any closing quote or bracket, then
+// whitespace or the end of the phrase.
+const SENTENCE_END = /[.!?…]+["'”’)\]]*(?:\s+|$)/g;
+
+// A line with no punctuation in it at all must still break eventually, or a
+// rambling speaker produces one line the height of the screen.
+const SOFT_MAX = 150;
+
+const SLUG = (v) => String(v || "").toLowerCase();
+
+// ---------------------------------------------------------------------------
+// state kept by the renderer itself (never by the server)
+
+let lineSigs = [];          // per-line signature, for reconciliation
+let flashed = new Set();    // claims whose field flash has already fired
+let relitTimers = new Map();
+let openCard = null;        // claim_id whose card is showing
+let pinned = true;
+const PIN_SLOP = 48;
+
+// ---------------------------------------------------------------------------
+// text -> lines
+
+/** Every segment the page knows about, in stable order, however it is grouped. */
+function orderedSegments() {
+  const seen = new Map();
+  for (const w of state.windows) {
+    for (const s of w.segments) seen.set(s.id, { id: s.id, text: s.text, win: w });
   }
-  return found.sort((a, b) => a.span.start - b.span.start);
+  for (const s of state.pending) {
+    if (!seen.has(s.id)) seen.set(s.id, { id: s.id, text: s.text, win: null });
+  }
+  return [...seen.values()].sort((a, b) => SEG_N(a.id) - SEG_N(b.id));
 }
 
-function claimClass(claim) {
-  if (claim.stage !== "done") return "claim checking";
-  switch (claim.verdict) {
-    case "SUPPORTED": return "claim nocap";
-    case "CONTRADICTED": return "claim cap";
-    case "PARTIALLY_SUPPORTED": return "claim partial";
-    case "DISPUTED": return "claim disputed";
-    case "NOT_FACT_CHECKABLE": return "claim salad";
-    default: return "claim unknown";
+/** Split one segment's text at sentence ends, keeping each piece's offset. */
+function piecesOf(text) {
+  const out = [];
+  let last = 0;
+  SENTENCE_END.lastIndex = 0;
+  let m;
+  while ((m = SENTENCE_END.exec(text)) !== null) {
+    const end = m.index + m[0].length;
+    out.push({ base: last, text: text.slice(last, end), closes: true });
+    last = end;
+    if (SENTENCE_END.lastIndex <= m.index) SENTENCE_END.lastIndex = m.index + 1;
   }
+  if (last < text.length) out.push({ base: last, text: text.slice(last), closes: false });
+  return out;
 }
 
-function segmentSpan(seg) {
-  const wrap = document.createElement("span");
-  const marks = spansFor(seg.id);
+/** The whole transcript as lines of chunks. A chunk knows its segment and offset. */
+function buildLines() {
+  const lines = [];
+  let cur = [];
+  let len = 0;
+  let closed = true;
 
-  if (!marks.length) {
-    wrap.textContent = seg.text + " ";
-    return wrap;
-  }
+  const flush = (didClose) => {
+    if (!cur.length) return;
+    lines.push({ chunks: cur, closed: didClose, wins: new Set(cur.map((c) => c.win).filter(Boolean)) });
+    cur = [];
+    len = 0;
+  };
 
-  let cursor = 0;
-  for (const { claim, span, isLast } of marks) {
-    if (span.start > cursor) wrap.append(seg.text.slice(cursor, span.start));
-
-    const mark = document.createElement("mark");
-    mark.className = claimClass(claim);
-    mark.dataset.claimId = claim.id;
-    mark.textContent = seg.text.slice(span.start, span.end);
-
-    if (claim.sticker && isLast) {
-      const sticker = document.createElement("span");
-      sticker.className = "sticker";
-      sticker.textContent = claim.sticker;
-      if (claim.verdictStage === "provisional") sticker.classList.add("provisional");
-      mark.append(sticker);
+  for (const seg of orderedSegments()) {
+    for (const p of piecesOf(seg.text)) {
+      if (!p.text) continue;
+      cur.push({ segId: seg.id, base: p.base, text: p.text, win: seg.win });
+      len += p.text.length;
+      if (p.closes) { flush(true); closed = true; }
+      else if (len >= SOFT_MAX) { flush(false); closed = false; }
+      else closed = false;
     }
-    wrap.append(mark);
-    cursor = Math.max(cursor, span.end);
   }
-  wrap.append(seg.text.slice(cursor) + " ");
-  return wrap;
+  flush(false);
+  return { lines, closed: lines.length ? lines[lines.length - 1].closed : true };
 }
 
-function windowBlock(win, isPending) {
-  const block = document.createElement("p");
-  block.className = isPending ? "window pending" : "window";
-  block.append(...win.segments.map(segmentSpan));
+// ---------------------------------------------------------------------------
+// claims
 
-  if (win.skipped) {
+/** Claim fragments that fall inside one chunk, in chunk-local coordinates. */
+function hitsIn(chunk) {
+  const hits = [];
+  for (const c of state.claims.values()) {
+    for (const sp of c.spans || []) {
+      if (sp.segment_id !== chunk.segId) continue;
+      const s = Math.max(sp.start, chunk.base);
+      const e = Math.min(sp.end, chunk.base + chunk.text.length);
+      if (e > s) hits.push({ id: c.id, s: s - chunk.base, e: e - chunk.base });
+    }
+  }
+  return hits.sort((a, b) => a.s - b.s);
+}
+
+function lineSignature(line) {
+  const text = line.chunks.map((c) => `${c.segId}:${c.base}:${c.text.length}`).join("|");
+  const marks = line.chunks
+    .flatMap((c) => hitsIn(c).map((h) => `${h.id}@${h.s}-${h.e}`))
+    .join(",");
+  const skip = [...line.wins].map((w) => w.skipped || "").join(",");
+  return `${text}#${marks}#${skip}`;
+}
+
+// ---------------------------------------------------------------------------
+// DOM
+
+function buildLine(line) {
+  const p = document.createElement("p");
+  p.className = "line";
+
+  line.chunks.forEach((chunk, ci) => {
+    const hits = hitsIn(chunk);
+    let at = 0;
+
+    const emit = (text, claimId) => {
+      if (!text) return;
+      if (!claimId) {
+        p.appendChild(document.createTextNode(text));
+        return;
+      }
+      const mark = document.createElement("span");
+      mark.className = "mark";
+      mark.dataset.claimId = claimId;
+      mark.setAttribute("role", "button");
+      mark.setAttribute("tabindex", "0");
+      const txt = document.createElement("span");
+      txt.className = "txt";
+      txt.textContent = text;
+      mark.appendChild(txt);
+      p.appendChild(mark);
+    };
+
+    for (const h of hits) {
+      if (h.s > at) emit(chunk.text.slice(at, h.s), null);
+      emit(chunk.text.slice(h.s, h.e), h.id);
+      at = Math.max(at, h.e);
+    }
+    emit(chunk.text.slice(at), null);
+
+    const isLast = ci === line.chunks.length - 1;
+    if (!isLast && !/\s$/.test(chunk.text)) p.appendChild(document.createTextNode(" "));
+  });
+
+  // A window the pre-filter dropped. Addressed by window_id, drawn on words.
+  const skipped = [...line.wins].map((w) => w.skipped).filter(Boolean);
+  if (skipped.length) {
     const tag = document.createElement("span");
-    tag.className = "why";
-    tag.textContent = `skipped: ${win.skipped}`;
-    block.append(tag);
+    tag.className = "skip";
+    tag.textContent = `skipped: ${skipped[0]}`;
+    p.appendChild(tag);
   }
-  return block;
+
+  return p;
 }
 
-export function render() {
-  el("status").textContent = state.status;
+/** Verdict colours and the tag, applied in place so animations never restart. */
+function paintClaims() {
+  for (const c of state.claims.values()) {
+    const marks = [...lyr().querySelectorAll(`[data-claim-id="${CSS.escape(c.id)}"]`)];
+    if (!marks.length) continue;
 
-  const banner = el("error");
-  banner.textContent = state.error || "";
-  banner.hidden = !state.error;
+    const slug = SLUG(c.verdict);
+    for (const m of marks) {
+      const checking = !c.verdict && c.checkable !== false;
+      m.classList.toggle("checking", checking);
+
+      if (c.verdict) {
+        m.dataset.v = c.verdict;
+        m.style.setProperty("--vc", `var(--v-${slug})`);
+        m.style.setProperty("--vline", `var(--line-${slug})`);
+      } else {
+        delete m.dataset.v;
+      }
+
+      m.setAttribute("aria-expanded", String(openCard === c.id));
+      m.setAttribute("aria-label", ariaFor(c));
+      const old = m.querySelector(".tag");
+      if (old) old.remove();
+    }
+
+    // Only the last fragment of a claim carries the label.
+    const label = c.sticker || (c.verdict ? c.verdict : "");
+    if (label) {
+      const last = marks[marks.length - 1];
+
+      // A claim almost never includes the sentence's full stop, so without
+      // this the label lands between the words and their punctuation:
+      // "...per month ABSOLUTE CAP." Pull the punctuation inside the mark,
+      // after the marked text, so it reads "...per month. ABSOLUTE CAP".
+      const after = last.nextSibling;
+      if (after && after.nodeType === Node.TEXT_NODE && !last.querySelector(".punct")) {
+        const m = /^[.,;:!?…)"'”’\]]+/.exec(after.textContent);
+        if (m) {
+          after.textContent = after.textContent.slice(m[0].length);
+          const punct = document.createElement("span");
+          punct.className = "punct";
+          punct.textContent = m[0];
+          last.appendChild(punct);
+        }
+      }
+
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = label;
+      tag.setAttribute("aria-hidden", "true");
+      last.appendChild(tag);
+    }
+  }
+}
+
+function ariaFor(c) {
+  const claim = c.normalized || c.quote || "claim";
+  if (!c.verdict) return `Claim: ${claim}. Being checked.`;
+  const stage = c.verdictStage === "provisional" ? " Quick read." : "";
+  return `Claim: ${claim}. Verdict: ${c.sticker || c.verdict}.${stage}`;
+}
+
+/** Which lines are lit. A line stays lit while it still has work in it. */
+function paintLineStates(lines) {
+  const nodes = [...lyr().querySelectorAll(".line")];
+  const unresolved = new Set();
+  for (const c of state.claims.values()) {
+    if (!c.verdict) for (const sp of c.spans || []) unresolved.add(sp.segment_id);
+  }
+
+  nodes.forEach((node, i) => {
+    const line = lines[i];
+    if (!line) return;
+    const segs = new Set(line.chunks.map((c) => c.segId));
+    const held = [...segs].some((s) => unresolved.has(s));
+    const live = i === nodes.length - 1;
+
+    node.classList.toggle("live", live);
+    node.classList.toggle("held", held && !live);
+    node.classList.toggle("sunk", !live && !held && i < nodes.length - 5);
+  });
+}
+
+/** Interim words land in the line being spoken, and are the only node
+ *  allowed to be replaced on every frame. */
+function paintInterim(closed) {
+  const box = lyr();
+  let node = box.querySelector(".interim");
+
+  if (!state.interim) {
+    if (node) {
+      const line = node.closest(".line");
+      node.remove();
+      if (line && !line.textContent.trim()) line.remove();
+    }
+    return;
+  }
+
+  if (!node) {
+    node = document.createElement("span");
+    node.className = "interim";
+    const last = box.querySelector(".line:last-of-type");
+    if (last && !closed) {
+      last.appendChild(document.createTextNode(" "));
+      last.appendChild(node);
+    } else {
+      const p = document.createElement("p");
+      p.className = "line live";
+      p.appendChild(node);
+      box.appendChild(p);
+    }
+  }
+  node.textContent = state.interim;
+}
+
+// ---------------------------------------------------------------------------
+// the field taking a verdict
+
+const LOUD = new Set(["CONTRADICTED", "SUPPORTED"]);
+
+function flashField() {
+  for (const c of state.claims.values()) {
+    if (!c.verdict || flashed.has(c.id + c.verdict)) continue;
+    flashed.add(c.id + c.verdict);
+
+    el("announce").textContent = `${c.sticker || c.verdict}: ${c.normalized || c.quote || ""}`;
+
+    // A verdict can land eight seconds late, on a line that has gone dim and
+    // scrolled up. Light it back up so the change is seen where it happened.
+    for (const sp of c.spans || []) {
+      const m = lyr().querySelector(`[data-claim-id="${CSS.escape(c.id)}"]`);
+      const line = m && m.closest(".line");
+      if (!line || line.classList.contains("live")) break;
+      line.classList.add("relit");
+      clearTimeout(relitTimers.get(c.id));
+      relitTimers.set(c.id, setTimeout(() => line.classList.remove("relit"),
+        parseInt(getComputedStyle(document.documentElement).getPropertyValue("--hold-relit")) || 2400));
+      break;
+    }
+
+    if (!LOUD.has(c.verdict)) continue;
+
+    sound.verdict(c.verdict);
+    document.body.dataset.flash = c.verdict;
+    clearTimeout(flashField._t);
+    flashField._t = setTimeout(() => {
+      delete document.body.dataset.flash;
+    }, parseInt(getComputedStyle(document.documentElement).getPropertyValue("--hold-field")) || 1500);
+  }
+}
+
+function paintTally() {
+  let cap = 0, nocap = 0;
+  for (const c of state.claims.values()) {
+    if (c.verdict === "CONTRADICTED") cap += 1;
+    if (c.verdict === "SUPPORTED") nocap += 1;
+  }
+  el("t-cap").textContent = cap;
+  el("t-nocap").textContent = nocap;
+  el("t-cap").parentElement.dataset.zero = cap ? "0" : "1";
+  el("t-nocap").parentElement.dataset.zero = nocap ? "0" : "1";
+}
+
+// ---------------------------------------------------------------------------
+// the evidence card
+
+const TIER_GLYPH = { 1: "◆", 2: "◇", 3: "◌", 4: "⚠" };
+const TIER_NAME = { 1: "primary", 2: "reputable", 3: "unknown", 4: "low trust" };
+
+function closeCard() {
+  const c = document.querySelector(".card");
+  if (c) c.remove();
+  openCard = null;
+}
+
+function showCard(claimId) {
+  closeCard();
+  const c = state.claims.get(claimId);
+  if (!c) return;
+  openCard = claimId;
+
+  const slug = SLUG(c.verdict);
+  const card = document.createElement("div");
+  card.className = "card";
+  card.setAttribute("role", "dialog");
+  card.setAttribute("aria-label", "Evidence");
+  if (c.verdict) card.style.setProperty("--vc", `var(--v-${slug})`);
+
+  const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; } };
+  const byId = new Map((c.evidence || []).map((e) => [e.evidence_id, e]));
+
+  const head = document.createElement("div");
+  head.className = "card-head";
+  head.innerHTML =
+    `<span class="card-v"></span><span class="card-ms"></span>` +
+    `<button class="card-x" type="button" aria-label="Close">✕</button>`;
+  head.querySelector(".card-v").textContent = c.sticker || (c.checkable === false ? "not checkable" : "checking…");
+  head.querySelector(".card-ms").textContent = c.tookMs ? `${(c.tookMs / 1000).toFixed(1)}s` : "";
+  head.querySelector(".card-x").onclick = () => { closeCard(); paintClaims(); };
+  card.appendChild(head);
+
+  const h3 = document.createElement("h3");
+  h3.textContent = c.normalized || c.quote || "";
+  card.appendChild(h3);
+
+  if (c.verdictStage === "provisional") {
+    const p = document.createElement("span");
+    p.className = "prov";
+    p.textContent = `quick read · ${c.depth || "snippets"}`;
+    card.appendChild(p);
+  }
+
+  if (c.summary) {
+    const p = document.createElement("p");
+    p.textContent = c.summary;
+    card.appendChild(p);
+  }
+
+  if (!c.verdict && c.checkable !== false) {
+    const p = document.createElement("p");
+    p.textContent = c.detail || "checking…";
+    card.appendChild(p);
+  }
+
+  if (c.correction) {
+    const fix = document.createElement("div");
+    fix.className = "fix";
+    fix.innerHTML = `<span>actually:</span> `;
+    fix.appendChild(document.createTextNode(c.correction));
+    card.appendChild(fix);
+  }
+
+  // A citation has already been verified verbatim against its passage on the
+  // server, so it is shown as what is on the page, not as what a model said.
+  for (const cite of c.citations || []) {
+    const q = document.createElement("blockquote");
+    q.className = "quote";
+    q.textContent = `“${cite.quote}”`;
+    const src = byId.get(cite.evidence_id);
+    if (src) {
+      const cap = document.createElement("cite");
+      cap.textContent = `${host(src.url)} · ${cite.evidence_id}`;
+      q.appendChild(cap);
+    }
+    card.appendChild(q);
+  }
+
+  for (const e of c.evidence || []) {
+    const a = document.createElement("a");
+    a.className = "src";
+    a.href = e.url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    const tier = document.createElement("span");
+    tier.className = "tier";
+    tier.dataset.t = String(e.tier || 3);
+    tier.textContent = `${TIER_GLYPH[e.tier] || "◌"} ${TIER_NAME[e.tier] || "unknown"}`;
+    a.appendChild(tier);
+    a.appendChild(document.createTextNode(host(e.url)));
+    const eid = document.createElement("span");
+    eid.className = "eid";
+    eid.textContent = e.evidence_id || "";
+    a.appendChild(eid);
+    card.appendChild(a);
+  }
+
+  const foot = document.createElement("div");
+  foot.className = "card-foot";
+  if (c.confidence && c.confidence !== "none") {
+    const conf = document.createElement("span");
+    conf.className = "conf";
+    conf.dataset.level = c.confidence;
+    conf.setAttribute("aria-label", `${c.confidence} confidence`);
+    conf.innerHTML = "<i></i><i></i><i></i>";
+    conf.appendChild(document.createTextNode(` ${c.confidence} confidence`));
+    foot.appendChild(conf);
+  }
+  const meta = document.createElement("span");
+  meta.className = "card-meta";
+  meta.textContent = [c.kind, c.shape].filter(Boolean).join(" · ");
+  foot.appendChild(meta);
+  card.appendChild(foot);
+
+  document.body.appendChild(card);
+}
+
+// ---------------------------------------------------------------------------
+// chrome
+
+function paintChrome() {
+  const busy = [...state.claims.values()].some((c) => !c.verdict && c.checkable !== false);
+  el("stxt").textContent = state.status;
+  el("status").dataset.busy = busy ? "1" : "0";
+  el("rotor").textContent = busy ? "◜" : "◌";
 
   const b = state.budget;
-  el("budget").textContent =
-    b.pool === "byok" ? "your keys" : `${b.claimsLeft} claims left`;
-
-  const blocks = state.windows.map((w) => windowBlock(w, false));
-  if (state.pending.length) {
-    blocks.push(windowBlock({ segments: state.pending }, true));
+  const box = el("budget");
+  if (b.pool === "byok" || !b.claimsCap) {
+    box.textContent = "";
+  } else {
+    box.textContent = `${b.claimsLeft}/${b.claimsCap}`;
+    box.dataset.out = b.claimsLeft <= 0 ? "1" : "0";
+    box.title = `${b.claimsLeft} checks left in this session`;
   }
-  el("transcript").replaceChildren(...blocks);
 
-  el("interim").textContent = state.interim;
-
-  // The detail list, so evidence is visible before the design pass exists.
-  const recent = [...state.claims.values()].slice(-8).reverse();
-  el("detail").replaceChildren(
-    ...recent.map((c) => {
-      const box = document.createElement("div");
-      box.className = "claim-detail";
-
-      const head = document.createElement("div");
-      head.className = `claim-head ${claimClass(c).replace("claim ", "")}`;
-      head.textContent = c.sticker || c.detail || c.stage;
-      box.append(head);
-
-      const body = document.createElement("div");
-      body.textContent = c.normalized || c.quote;
-      box.append(body);
-
-      if (c.correction) {
-        const fix = document.createElement("div");
-        fix.className = "correction";
-        fix.textContent = `actually: ${c.correction}`;
-        box.append(fix);
-      }
-      for (const cite of c.citations || []) {
-        const q = document.createElement("div");
-        q.className = "quote";
-        q.textContent = `"${cite.quote}"`;
-        box.append(q);
-      }
-      if (c.tookMs) {
-        const meta = document.createElement("div");
-        meta.className = "meta";
-        meta.textContent = `${(c.tookMs / 1000).toFixed(1)}s · ${c.depth || ""} · ${c.confidence || ""}`;
-        box.append(meta);
-      }
-      return box;
-    })
-  );
+  const err = el("error");
+  if (state.error) {
+    err.hidden = false;
+    err.innerHTML = "<b>Not working</b>";
+    err.appendChild(document.createTextNode(state.error));
+  } else {
+    err.hidden = true;
+  }
 }
+
+// ---------------------------------------------------------------------------
+
+export function render() {
+  const box = lyr();
+  const { lines, closed } = buildLines();
+
+  // Rebuild only from the first line that actually changed. Everything above
+  // it keeps its DOM, its text selection and its running animations.
+  const sigs = lines.map(lineSignature);
+  let from = 0;
+  while (from < sigs.length && from < lineSigs.length && sigs[from] === lineSigs[from]) from += 1;
+
+  if (from < lineSigs.length || from < sigs.length) {
+    const nodes = [...box.querySelectorAll(".line")];
+    for (let i = from; i < nodes.length; i += 1) nodes[i].remove();
+    const frag = document.createDocumentFragment();
+    for (let i = from; i < lines.length; i += 1) frag.appendChild(buildLine(lines[i]));
+    box.appendChild(frag);
+  }
+  lineSigs = sigs;
+
+  const cold = el("cold");
+  if (cold) cold.hidden = lines.length > 0 || Boolean(state.interim);
+
+  paintInterim(closed);
+  paintClaims();
+  paintLineStates(lines);
+  flashField();
+  paintTally();
+  paintChrome();
+
+  if (openCard) showCard(openCard);
+  if (pinned) box.scrollTo({ top: box.scrollHeight, behavior: "auto" });
+}
+
+// --- one listener for the whole transcript, however much of it there is -----
+
+document.addEventListener("click", (ev) => {
+  const mark = ev.target.closest && ev.target.closest(".mark");
+  if (mark) {
+    const id = mark.dataset.claimId;
+    if (openCard === id) { closeCard(); paintClaims(); }
+    else { showCard(id); paintClaims(); }
+    return;
+  }
+  if (!ev.target.closest || !ev.target.closest(".card")) { closeCard(); paintClaims(); }
+});
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && openCard) { closeCard(); paintClaims(); return; }
+  const mark = ev.target.closest && ev.target.closest(".mark");
+  if (mark && (ev.key === "Enter" || ev.key === " ")) {
+    ev.preventDefault();
+    showCard(mark.dataset.claimId);
+    paintClaims();
+  }
+});
+
+// Autoscroll only while pinned: never yank the page while someone is reading
+// something further up.
+document.addEventListener("DOMContentLoaded", () => {
+  const box = lyr();
+  if (!box) return;
+  box.addEventListener("scroll", () => {
+    pinned = box.scrollHeight - box.scrollTop - box.clientHeight <= PIN_SLOP;
+  }, { passive: true });
+});

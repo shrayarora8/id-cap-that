@@ -3,10 +3,20 @@
 
 import * as ws from "./ws.js";
 import * as audio from "./audio.js";
+import * as sound from "./sound.js";
 import { state, apply } from "./state.js";
 import { render } from "./render.js";
 
 const el = (id) => document.getElementById(id);
+
+// The listen button holds a status dot as well as its label, so its text is
+// set on the last child rather than by blowing away its contents.
+function listenLabel(text) {
+  const b = el("listen");
+  b.lastChild.nodeType === Node.TEXT_NODE
+    ? (b.lastChild.textContent = text)
+    : b.appendChild(document.createTextNode(text));
+}
 
 ws.connect({
   onMessage: (msg) => {
@@ -20,6 +30,8 @@ ws.connect({
     state.status = "reconnecting…";
     state.listening = false;
     el("listen").classList.remove("on");
+    el("listen").setAttribute("aria-pressed", "false");
+    listenLabel("Listen");
     audio.stop();
     render();
   },
@@ -41,7 +53,8 @@ el("listen").addEventListener("click", async () => {
   if (state.listening) {
     state.listening = false;
     el("listen").classList.remove("on");
-    el("listen").textContent = "start listening";
+    el("listen").setAttribute("aria-pressed", "false");
+    listenLabel("Listen");
     await audio.stop();
     ws.sendJSON({ type: "stop_listening" });
     return;
@@ -66,7 +79,8 @@ el("listen").addEventListener("click", async () => {
     const rate = await audio.start((buf) => ws.sendBinary(buf));
     state.listening = true;
     el("listen").classList.add("on");
-    el("listen").textContent = "stop";
+    el("listen").setAttribute("aria-pressed", "true");
+    listenLabel("Stop");
     state.status = `listening at ${rate} Hz`;
   } catch (err) {
     state.status = `microphone blocked: ${err.message}`;
@@ -74,6 +88,24 @@ el("listen").addEventListener("click", async () => {
   }
   render();
 });
+
+// --- the cold start: a stranger, no microphone, nobody explaining ----------
+
+document.querySelectorAll(".eg").forEach((b) => {
+  b.addEventListener("click", () => {
+    ws.sendJSON({ type: "inject_text", text: b.dataset.eg });
+  });
+});
+
+// --- sound ------------------------------------------------------------------
+
+el("mute").addEventListener("click", (ev) => {
+  const on = sound.toggle();
+  ev.currentTarget.setAttribute("aria-pressed", String(on));
+  ev.currentTarget.textContent = on ? "Sound on" : "Sound off";
+});
+el("mute").setAttribute("aria-pressed", String(sound.enabled()));
+el("mute").textContent = sound.enabled() ? "Sound on" : "Sound off";
 
 render();
 

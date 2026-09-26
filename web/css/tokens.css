@@ -1,22 +1,19 @@
 /* =============================================================================
    I'd cap that — design tokens
-   -----------------------------------------------------------------------------
-   Vanilla CSS. No build step. Load first, before every other stylesheet:
 
-       <link rel="stylesheet" href="/css/tokens.css">
-       <link rel="stylesheet" href="/css/app.css">
+   Decision 1 (agreed, see docs/DESIGN-SYSTEM.md): the app is a flat colour
+   field with big tight type on it and no chrome. Two line states. When a
+   verdict lands on ABSOLUTE CAP or NO CAP, the whole field takes its colour.
 
-   Or from one entry stylesheet:  @import url("tokens.css");
+   Two values drive almost everything else: --field and --live. Every dim
+   state is derived from them with color-mix, so the dim state is always the
+   field pushed toward the ink and never a grey laid on top. Change the field
+   hue and the entire app stays coherent.
 
-   Rules for anyone editing this file:
-     1. No raw hex, px, ms or cubic-bezier outside this file. Ever.
-     2. Every text/background pair below carries its measured WCAG ratio in a
-        comment. If you change a value, re-measure it. Target is AA (4.5:1 for
-        body text, 3:1 for large text and non-text UI). Most pairs here clear AAA.
-     3. Dark is the primary theme. Light is a redefinition under
-        [data-theme="light"] and is never the design target.
-
-   Spec: docs/DESIGN-SYSTEM.md
+   Rules:
+     1. No raw hex, px, ms or cubic-bezier outside this file.
+     2. Type is NOT settled — the stack below is a placeholder pending design
+        round 2. It is one token; swapping it is a one-line change.
    ============================================================================= */
 
 @layer tokens {
@@ -24,511 +21,129 @@
 :root {
   color-scheme: dark;
 
-  /* ===========================================================================
-     1. SURFACES + BASE INK
-     The base is a cold, near-black ink blue, not neutral grey: it makes the
-     highlighter yellow and the six verdict hues read as pigment on paper
-     rather than as UI chrome, and it survives a washed-out projector.
-     Surface steps are deliberately tiny (1.04–1.09:1) — depth comes from
-     hairlines and from the verdict colour, never from grey boxes.
-     ========================================================================= */
+  /* --- the field -----------------------------------------------------------
+     Four candidate resting hues, selected with <html data-field="…">.
+     Sage is the one closest to the Spotify reference. Not yet settled. */
+  --field-ink:   #14161B;
+  --field-moss:  #18211C;
+  --field-clay:  #1F1917;
+  --field-sage:  #5A7354;
 
-  --ink:              #07090D;  /* text on any bright fill; the darkest value in the system */
-  --bg-base:          #0B0D12;  /* page, transcript */
-  --bg-raised:        #141821;  /* evidence cards, sheet, top/bottom bars    1.09:1 vs base */
-  --bg-inset:         #0F131A;  /* text input, quote wells                   1.04:1 vs base */
-  --bg-sheet:         #141821;  /* mobile bottom sheet */
-  --bg-scrim:         rgba(7, 9, 13, 0.72); /* behind the expanded sheet */
+  --field: var(--field-ink);
+  --live:  #F3F5F7;   /* the lit line. 15.8:1 on ink. */
 
-  --hairline:         #242A36;  /* 1px dividers on base    1.35:1 — structural, non-text */
-  --hairline-strong:  #2C3342;  /* 1px dividers on raised  1.40:1 */
+  /* Derived. The dim states are the field moved toward the ink, never grey. */
+  --past:  color-mix(in oklab, var(--field) 72%, var(--live));
+  --faint: color-mix(in oklab, var(--field) 84%, var(--live));
+  --hair:  color-mix(in oklab, var(--field) 88%, var(--live));
+  --sunk:  color-mix(in oklab, var(--field) 92%, var(--live));
 
-  --text-primary:     #F2F4F8;  /* 17.65:1 on base · 16.13:1 on raised · 16.90:1 on inset */
-  --text-secondary:   #A8B0C0;  /*  8.92:1 on base ·  8.15:1 on raised */
-  --text-tertiary:    #828B9D;  /*  5.67:1 on base ·  5.18:1 on raised — AA floor, do not go dimmer */
-  --text-inverse:     #07090D;  /* on accent / on any verdict -core fill */
+  /* --- verdicts ------------------------------------------------------------
+     Red and green are decided. The other four are design round 6; amber and
+     the neutral are placeholders and deliberately quiet. Colour is never the
+     only signal — see --line-* below and the glyphs in render.js. */
+  --v-red:    #FF5247;
+  --v-green:  #33D693;
+  --v-amber:  #F0A63C;
+  --v-quiet:  #8A929C;
 
-  /* ===========================================================================
-     2. BRAND ACCENT — HIGHLIGHTER
-     The whole product is "a highlighter passing over spoken words". The accent
-     is literal high-vis highlighter yellow. It means EXACTLY ONE THING:
-     "the machine is working on this right now." It is never a verdict, never a
-     decorative border, never a link colour.
-     ========================================================================= */
+  --v-contradicted:          var(--v-red);
+  --v-supported:             var(--v-green);
+  --v-partially_supported:   var(--v-amber);
+  --v-disputed:              var(--v-quiet);
+  --v-insufficient_evidence: var(--v-quiet);
+  --v-not_fact_checkable:    var(--v-quiet);
 
-  --accent:           #E4FF4F;  /* 17.32:1 on base — the loudest value in the system */
-  --accent-ink:       #07090D;  /* 17.76:1 on accent */
-  --accent-dim:       #A8BD33;  /* accent at rest: idle mic ring, focus ring on light */
-  --accent-tint:      #2E341C;  /* accent @16% over base — the "checking" highlight wash
-                                   text-primary on it: 11.74:1 */
-  --accent-glow:      rgba(228, 255, 79, 0.28); /* one-shot ring flashes only */
+  /* Non-colour signal per verdict: the underline style. Survives greyscale,
+     a washed-out projector and video compression, all of which eat hue. */
+  --line-contradicted:          solid;
+  --line-supported:             solid;
+  --line-partially_supported:   dashed;
+  --line-disputed:              double;
+  --line-insufficient_evidence: dotted;
+  --line-not_fact_checkable:    dotted;
 
-  /* ===========================================================================
-     3. VERDICTS
-     Six families. Each has:
-       -core   saturated pigment: sticker fill, underline, card rail
-       -text   lighter tint of the same hue: verdict-coloured text on dark
-       -tint   PRE-COMPOSITED opaque colour (core @16% over --bg-base) for the
-               transcript highlight. Opaque, not rgba(), so overlapping claim
-               spans never double-darken.
-       -tint-r same, composited over --bg-raised, for cards and the sheet
-       -prov   core @18% over base: the provisional (fast-read) sticker fill
-       -ink    text colour on top of -core
-       -line   the NON-COLOUR signal: border-bottom-style of the highlight
-     ------------------------------------------------------------------------- */
+  /* The field flash. Derived from the field itself so every hue works. */
+  --flash-red:   color-mix(in oklab, var(--field) 74%, var(--v-red));
+  --flash-green: color-mix(in oklab, var(--field) 76%, var(--v-green));
 
-  /* --- SUPPORTED · "NO CAP" -------------------------------------------------
-     Cyan-leaning green. Reads as "receipt / verified", and sits far from the
-     amber of SOME CAP in every colour-blind simulation. */
-  --v-supported-core:     #2FD79A;  /* 10.46:1 on base ·  9.56:1 on raised */
-  --v-supported-text:     #5CE3B2;  /* 12.11:1 on base · 11.07:1 on raised · 8.74:1 on -prov */
-  --v-supported-tint:     #112D28;  /* text-primary on it: 13.34:1 */
-  --v-supported-tint-r:   #183734;  /* text-primary on it: 11.67:1 */
-  --v-supported-prov:     #11312A;
-  --v-supported-ink:      #07090D;  /* 10.73:1 on -core */
-  --v-supported-line:     solid;    /* NON-COLOUR SIGNAL: one solid 3px rule */
+  /* The checking wash — a highlighter being dragged over the words. */
+  --wash: #E9FF63;
 
-  /* --- CONTRADICTED · "ABSOLUTE CAP" ---------------------------------------
-     Hot signal red, not blood red. This is the klaxon: it must be the single
-     loudest thing on a projected screen from 3 metres. */
-  --v-contradicted-core:   #FF4A4A;  /*  5.86:1 on base · 5.35:1 on raised */
-  --v-contradicted-text:   #FF8E8E;  /*  8.80:1 on base · 8.04:1 on raised · 7.26:1 on -prov */
-  --v-contradicted-tint:   #32171B;  /* text-primary on it: 14.97:1 */
-  --v-contradicted-tint-r: #3A2028;  /* text-primary on it: 13.46:1 */
-  --v-contradicted-prov:   #37181C;
-  --v-contradicted-ink:    #07090D;  /*  6.01:1 on -core */
-  --v-contradicted-line:   double;   /* NON-COLOUR SIGNAL: double rule + line-through on the words */
+  /* Failure. Never the same as quiet: an hour was lost to a dead microphone
+     that looked exactly like nobody talking. */
+  --alarm:      #FF5247;
+  --alarm-fill: color-mix(in oklab, var(--field) 72%, var(--v-red));
 
-  /* --- PARTIALLY_SUPPORTED · "SOME CAP" ------------------------------------
-     Amber. "True, but." Warm enough to feel like a caution strip, pushed
-     orange so it never collides with the highlighter yellow of "checking". */
-  --v-partial-core:       #FF9E2C;  /*  9.42:1 on base ·  8.61:1 on raised */
-  --v-partial-text:       #FFBC68;  /* 11.70:1 on base · 10.69:1 on raised · 8.63:1 on -prov */
-  --v-partial-tint:       #322416;  /* text-primary on it: 13.63:1 */
-  --v-partial-tint-r:     #3A2D23;  /* text-primary on it: 12.07:1 */
-  --v-partial-prov:       #372717;
-  --v-partial-ink:        #07090D;  /*  9.66:1 on -core */
-  --v-partial-line:       dashed;   /* NON-COLOUR SIGNAL: dashed rule — the claim has gaps */
+  /* --- type ----------------------------------------------------------------
+     PLACEHOLDER. Design round 2 picks the real faces and they get
+     self-hosted as woff2 in web/fonts/. No CDN at runtime, ever. */
+  --font-display: system-ui, -apple-system, "SF Pro Display", "Segoe UI Variable Display",
+                  "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-ui:      system-ui, -apple-system, "SF Pro Text", "Segoe UI Variable Text",
+                  "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+                  "Liberation Mono", monospace;
 
-  /* --- DISPUTED · "SOURCES ARE FIGHTING" -----------------------------------
-     Blue. The only verdict that is about the SOURCES rather than the truth, so
-     it gets the one hue nobody reads as good-or-bad, and the one hue that stays
-     separate from red/green/amber under deuteranopia and protanopia. */
-  --v-disputed-core:      #45B6FF;  /*  8.69:1 on base ·  7.94:1 on raised */
-  --v-disputed-text:      #8AD0FF;  /* 11.61:1 on base · 10.61:1 on raised · 8.68:1 on -prov */
-  --v-disputed-tint:      #142838;  /* text-primary on it: 13.72:1 */
-  --v-disputed-tint-r:    #1C3145;  /* text-primary on it: 12.11:1 */
-  --v-disputed-prov:      #152B3D;
-  --v-disputed-ink:       #07090D;  /*  8.91:1 on -core */
-  --v-disputed-line:      wavy;     /* NON-COLOUR SIGNAL: wavy underline — two sides, squabbling */
+  --fs-line:    clamp(27px, 6.4vw, 34px);  /* the transcript. The product. */
+  --fs-tag:     clamp(11px, 1.3vw, 12px);  /* ABSOLUTE CAP beside the words */
+  --fs-status:  13px;
+  --fs-label:   11px;
+  --fs-body:    14px;
+  --fs-claim:   15px;
+  --fs-num:     16px;
+  --fs-input:   17px;   /* below 16px iOS zooms the viewport and never unzooms */
 
-  /* --- INSUFFICIENT_EVIDENCE · "COULD BE CAP" ------------------------------
-     Cool desaturated slate. An absence of evidence must LOOK like an absence:
-     no pigment, no opinion. */
-  --v-insufficient-core:    #99A3B8;  /*  7.67:1 on base ·  7.01:1 on raised */
-  --v-insufficient-text:    #BCC4D2;  /* 11.07:1 on base · 10.12:1 on raised · 8.40:1 on -prov */
-  --v-insufficient-tint:    #22252D;  /* text-primary on it: 13.92:1 */
-  --v-insufficient-tint-r:  #292E39;  /* text-primary on it: 12.35:1 */
-  --v-insufficient-prov:    #252830;
-  --v-insufficient-ink:     #07090D;  /*  7.86:1 on -core */
-  --v-insufficient-line:    dotted;   /* NON-COLOUR SIGNAL: dotted rule — we couldn't join the dots */
+  --lh-line: 1.24;
+  --ls-line: -0.018em;
+  --ls-label: 0.12em;
 
-  /* --- NOT_FACT_CHECKABLE · "WORD SALAD" -----------------------------------
-     The dimmest family in the system. This verdict must RECEDE; it is the joke
-     that gets out of the way. */
-  --v-salad-core:         #8A8A99;  /*  5.72:1 on base ·  5.22:1 on raised */
-  --v-salad-text:         #A5A8B6;  /*  8.21:1 on base ·  7.51:1 on raised · 6.56:1 on -prov */
-  --v-salad-tint:         #1F2128;  /* text-primary on it: 14.60:1 */
-  --v-salad-tint-r:       #272A34;  /* text-primary on it: 13.00:1 */
-  --v-salad-prov:         #22242A;
-  --v-salad-ink:          #07090D;  /*  5.86:1 on -core */
-  --v-salad-line:         none;     /* NON-COLOUR SIGNAL: no rule at all + 0.78 opacity */
+  --fw-line: 700;
+  --fw-semi: 600;
+  --fw-med:  500;
 
-  /* Stickers land at a fixed tilt so they read as physical stickers, not chips.
-     Alternate the sign per claim index so a column of them isn't uniform. */
-  --sticker-tilt:        -1.5deg;
-  --sticker-tilt-alt:     1.5deg;
+  /* --- space, radius ------------------------------------------------------- */
+  --sp-1: 4px;  --sp-2: 6px;  --sp-3: 8px;  --sp-4: 12px;
+  --sp-5: 16px; --sp-6: 22px; --sp-7: 30px; --sp-8: 44px;
+  --gutter: clamp(18px, 4.5vw, 40px);
+  --line-gap: clamp(18px, 2.6vw, 26px);
+  --measure: 760px;
+  --r-sm: 7px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+  --tap: 44px;
 
-  /* ===========================================================================
-     4. SOURCE TRUST TIERS (1 primary … 4 low trust)
-     Deliberately NEUTRAL, so a tier badge is never mistaken for a verdict.
-     Only tier 4 borrows alarm colour, because only tier 4 is a warning.
-     Non-colour signal: border style + a glyph, same trick as the verdicts.
-     ========================================================================= */
-
-  --tier-1-fg:      #07090D;   /* 16.67:1 on --tier-1-bg */
-  --tier-1-bg:      #E6EBF5;   /* solid fill = "we stand behind this one" */
-  --tier-1-border:  #E6EBF5;
-  --tier-1-style:   solid;
-
-  --tier-2-fg:      #B4BCCC;   /* 10.19:1 on base · 9.31:1 on raised */
-  --tier-2-bg:      transparent;
-  --tier-2-border:  #B4BCCC;
-  --tier-2-style:   solid;
-
-  --tier-3-fg:      #828B9D;   /*  5.67:1 on base · 5.18:1 on raised */
-  --tier-3-bg:      transparent;
-  --tier-3-border:  #828B9D;
-  --tier-3-style:   dashed;
-
-  --tier-4-fg:      #FF8E8E;   /*  8.80:1 on base · 8.04:1 on raised */
-  --tier-4-bg:      #32171B;
-  --tier-4-border:  #FF4A4A;
-  --tier-4-style:   dotted;
-
-  /* ===========================================================================
-     5. CONFIDENCE (high / medium / low) — SEPARATE FROM VERDICT
-     Rendered as 3 bars. The FILLED COUNT is the signal; colour is neutral on
-     purpose so confidence can never be mistaken for a verdict.
-     ========================================================================= */
-
-  --conf-fill:      #BCC4D2;   /* 11.07:1 on base */
-  --conf-empty:     #2C3342;   /*  1.40:1 vs raised — non-text, structural */
-  --conf-label:     #A8B0C0;   /*  8.92:1 on base */
-
-  /* ===========================================================================
-     6. UTILITY / STATE
-     ========================================================================= */
-
-  --focus-ring:        #E4FF4F;         /* 17.32:1 on base — never remove, only restyle */
-  --focus-ring-width:  2px;
-  --focus-ring-offset: 2px;
-  --selection-bg:      #E4FF4F;
-  --selection-fg:      #07090D;         /* 17.76:1 */
-  --error-core:        #FF4A4A;
-  --error-text:        #FF8E8E;         /* 8.80:1 on base */
-  --live-dot:          #FF4A4A;         /* the recording dot, and only that */
-
-  /* ===========================================================================
-     7. TYPOGRAPHY
-     No webfont is required. The stack below resolves to SF Pro on iOS/macOS,
-     Segoe UI Variable on Windows 11, Roboto on Android — all of which have real
-     optical sizing and a 100–900 weight range, which is why the design does not
-     need a download to look intentional.
-
-     ONE optional enhancement: Archivo Black, used ONLY for stickers, the BS
-     index numerals and the wordmark. If it fails to load, --font-display falls
-     back to the system stack at weight 900 with the same letter-spacing, and
-     nothing reflows. Add this line to <head> ONLY if the venue wifi is proven:
-       <link rel="stylesheet"
-             href="https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap">
-     ========================================================================= */
-
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text",
-               "Segoe UI", Roboto, "Helvetica Neue", Arial, system-ui, sans-serif;
-  --font-display: "Archivo Black", -apple-system, BlinkMacSystemFont, "SF Pro Display",
-               "Segoe UI Variable Display", "Segoe UI", Roboto, "Helvetica Neue", Arial,
-               system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
-               "Liberation Mono", monospace;
-
-  /* --- size ramp (phone-first; 900px overrides at the bottom of this file) --- */
-  --fs-wordmark:      18px;
-  --fs-transcript:    22px;  /* THE HERO. Everything else is sized against this. */
-  --fs-sticker:       12px;
-  --fs-counter-num:   26px;
-  --fs-counter-label: 10px;
-  --fs-claim:         16px;
-  --fs-correction:    16px;
-  --fs-summary:       15px;
-  --fs-quote:         14px;
-  --fs-source:        13px;
-  --fs-tier:          10px;
-  --fs-confidence:    11px;
-  --fs-status:        13px;
-  --fs-button:        16px;
-  --fs-input:         17px;  /* NEVER below 16px: iOS Safari zooms the viewport on focus */
-  --fs-meta:          12px;
-
-  /* --- weights (system stacks all support these; Archivo Black is 900 only) -- */
-  --fw-regular:   400;
-  --fw-medium:    500;
-  --fw-semibold:  600;
-  --fw-bold:      700;
-  --fw-black:     900;
-
-  /* --- line heights --- */
-  --lh-tight:   1.05;  /* stickers, counters — single-line display type */
-  --lh-snug:    1.25;  /* labels, buttons, status */
-  --lh-body:    1.45;  /* the transcript */
-  --lh-relaxed: 1.55;  /* evidence prose, quotes */
-
-  /* --- letter spacing --- */
-  --ls-display:  -0.02em;  /* big type tightens */
-  --ls-normal:    0em;
-  --ls-transcript:-0.011em;/* optical correction so 22px doesn't look loose */
-  --ls-label:     0.06em;  /* small uppercase opens up */
-  --ls-sticker:   0.04em;
-  --ls-tier:      0.08em;
-
-  /* --- composed `font:` shorthands. Pair each with its --ls-* token.
-         Use these, not ad-hoc font-size/weight pairs. ----------------------- */
-  --type-wordmark:    var(--fw-black)    var(--fs-wordmark)/var(--lh-tight)   var(--font-display);
-  --type-transcript:  var(--fw-regular)  var(--fs-transcript)/var(--lh-body)  var(--font-sans);
-  --type-sticker:     var(--fw-black)    var(--fs-sticker)/var(--lh-tight)    var(--font-display);
-  --type-counter-num: var(--fw-black)    var(--fs-counter-num)/var(--lh-tight)var(--font-display);
-  --type-counter-lbl: var(--fw-bold)     var(--fs-counter-label)/var(--lh-snug) var(--font-sans);
-  --type-claim:       var(--fw-semibold) var(--fs-claim)/var(--lh-snug)       var(--font-sans);
-  --type-correction:  var(--fw-semibold) var(--fs-correction)/var(--lh-body)  var(--font-sans);
-  --type-summary:     var(--fw-regular)  var(--fs-summary)/var(--lh-relaxed)  var(--font-sans);
-  --type-quote:       var(--fw-regular)  var(--fs-quote)/var(--lh-relaxed)    var(--font-sans);
-  --type-source:      var(--fw-medium)   var(--fs-source)/var(--lh-snug)      var(--font-mono);
-  --type-tier:        var(--fw-bold)     var(--fs-tier)/var(--lh-tight)       var(--font-sans);
-  --type-confidence:  var(--fw-bold)     var(--fs-confidence)/var(--lh-tight) var(--font-sans);
-  --type-status:      var(--fw-medium)   var(--fs-status)/var(--lh-snug)      var(--font-mono);
-  --type-button:      var(--fw-bold)     var(--fs-button)/var(--lh-snug)      var(--font-sans);
-  --type-input:       var(--fw-regular)  var(--fs-input)/var(--lh-snug)       var(--font-sans);
-  --type-meta:        var(--fw-regular)  var(--fs-meta)/var(--lh-snug)        var(--font-mono);
-
-  /* ===========================================================================
-     8. SPACE / RADIUS / SHADOW / SIZE
-     4px grid. Only these values exist.
-     ========================================================================= */
-
-  --sp-1:   2px;
-  --sp-2:   4px;
-  --sp-3:   6px;
-  --sp-4:   8px;
-  --sp-5:  12px;
-  --sp-6:  16px;
-  --sp-7:  20px;
-  --sp-8:  24px;
-  --sp-9:  32px;
-  --sp-10: 40px;
-  --sp-11: 56px;
-  --sp-12: 72px;
-
-  --r-xs:   3px;   /* tier badge, confidence bar */
-  --r-sm:   6px;   /* sticker — a stamp, not a lozenge */
-  --r-md:  10px;   /* source link, quote well */
-  --r-lg:  14px;   /* evidence card */
-  --r-xl:  20px;   /* bottom sheet top corners */
-  --r-pill: 999px; /* listen button, jump-to-live pill */
-
-  /* Shadows are used for exactly two things: the sheet, and the sticker's
-     physical edge. Nothing else in this product floats. */
-  --shadow-sticker: 0 1px 0 rgba(7, 9, 13, 0.55), 0 2px 6px rgba(7, 9, 13, 0.4);
-  --shadow-sheet:   0 -8px 40px rgba(7, 9, 13, 0.6);
-  --shadow-card:    none;
-
-  /* structural sizes */
-  --topbar-h:        52px;
-  --dock-h:          84px;   /* listen button + status line, excl. safe area */
-  --sheet-peek-h:    96px;
-  --tap-min:         44px;   /* iOS minimum hit target — enforce on every control */
-  --measure:        720px;   /* max transcript line length on laptop */
-  --rail-w:         380px;
-  --bp-lap:         900px;   /* the one structural breakpoint */
-
-  /* iOS safe areas, aliased so layout code never writes env() twice */
   --safe-top:    env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left:   env(safe-area-inset-left, 0px);
   --safe-right:  env(safe-area-inset-right, 0px);
-  --gutter:      16px;  /* phone side gutter, before safe-area is added */
 
-  --z-transcript:  0;
-  --z-topbar:     10;
-  --z-dock:       20;
-  --z-scrim:      30;
-  --z-sheet:      40;
-  --z-toast:      50;
+  /* --- motion --------------------------------------------------------------
+     Four durations. The field flash is the only slow one, because it is the
+     only thing that is supposed to be felt rather than noticed. */
+  --dur-fast:  140ms;
+  --dur-base:  260ms;
+  --dur-line:  520ms;   /* a line changing state */
+  --dur-field: 640ms;   /* the field taking a verdict's colour */
+  --hold-field: 1500ms; /* how long it holds before settling back */
+  --hold-relit: 2400ms; /* how long a late verdict relights an old line */
+  --dur-sweep: 1500ms;
 
-  /* ===========================================================================
-     9. MOTION
-     Five durations, four curves. If a component needs a sixth, it is wrong.
-     ========================================================================= */
+  --ease:      cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
 
-  --dur-instant: 90ms;   /* hover/active colour changes */
-  --dur-fast:   140ms;   /* button press, focus ring, counter tick */
-  --dur-base:   220ms;   /* card swap, sheet snap-back, tint wipe */
-  --dur-slow:   320ms;   /* sheet open/close, provisional→confirmed flip */
-  --dur-land:   420ms;   /* THE VERDICT MOMENT. Nothing else may use this. */
-  --dur-sweep: 1400ms;   /* the looping "checking" highlighter sweep */
-
-  --ease-out:    cubic-bezier(0.22, 0.61, 0.36, 1);   /* default: things arriving */
-  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);      /* things moving between two states */
-  --ease-back:   cubic-bezier(0.2, 1.4, 0.35, 1);     /* overshoot — stickers ONLY */
-  --ease-snap:   cubic-bezier(0.16, 1, 0.3, 1);       /* expo-out — the bottom sheet */
-
-  /* Motion-safe multiplier. Multiply nothing; instead reduced-motion zeroes the
-     durations below and components swap to the opacity-only fallback. */
-  --motion-scale: 1;
+  --z-card: 20;
+  --z-bar:  30;
+  --z-alarm: 40;
 }
 
-/* =============================================================================
-   LAPTOP — the one breakpoint. Type grows, structure changes in app.css.
-   ========================================================================== */
-@media (min-width: 900px) {
-  :root {
-    --fs-wordmark:      20px;
-    --fs-transcript:    26px;
-    --fs-sticker:       13px;
-    --fs-counter-num:   32px;
-    --fs-counter-label: 11px;
-    --fs-claim:         17px;
-    --fs-correction:    17px;
-    --fs-summary:       16px;
-    --fs-quote:         15px;
-    --fs-source:        13px;
-    --fs-status:        14px;
-    --gutter:           32px;
-    --topbar-h:         60px;
-    --dock-h:           72px;
-  }
-}
+:root[data-field="moss"] { --field: var(--field-moss); }
+:root[data-field="clay"] { --field: var(--field-clay); }
+:root[data-field="sage"] { --field: var(--field-sage); }
 
-/* =============================================================================
-   PRESENTATION MODE — <html data-present>. One attribute, no separate build.
-   Everything the back of the room needs, nothing the back of the room doesn't.
-   ========================================================================== */
-:root[data-present] {
-  --fs-transcript:    38px;
-  --fs-sticker:       20px;
-  --fs-counter-num:   48px;
-  --fs-counter-label: 13px;
-  --fs-status:        18px;
-  --fs-claim:         22px;
-  --fs-correction:    22px;
-  --fs-summary:       20px;
-  --fs-source:        16px;
-  --fs-quote:         18px;
-  --measure:         980px;
-  --lh-body:          1.4;
-  /* verdict tints go up from 16% to ~26% so they survive projector washout */
-  --v-supported-tint:     #163F37;
-  --v-contradicted-tint:  #4A1E23;
-  --v-partial-tint:       #4A331C;
-  --v-disputed-tint:      #1A374C;
-  --v-insufficient-tint:  #2E323C;
-  --v-salad-tint:         #2A2C34;
-}
-
-/* =============================================================================
-   LIGHT THEME — optional, <html data-theme="light">. Same tokens, new values.
-   Verdict -core is darkened until white text clears AA on it; verdict-coloured
-   text on a light tint is never used, only --text-primary (≥14.5:1 everywhere).
-   ========================================================================== */
-:root[data-theme="light"] {
-  color-scheme: light;
-
-  --ink:             #0D1017;
-  --bg-base:         #F5F6F9;
-  --bg-raised:       #FFFFFF;
-  --bg-inset:        #EBEEF3;
-  --bg-sheet:        #FFFFFF;
-  --bg-scrim:        rgba(13, 16, 23, 0.4);
-  --hairline:        #D8DCE5;
-  --hairline-strong: #C6CCD8;
-
-  --text-primary:    #0D1017;   /* 17.61:1 on base · 19.03:1 on raised */
-  --text-secondary:  #454C5C;   /*  7.96:1 on base ·  8.60:1 on raised */
-  --text-tertiary:   #636B7C;   /*  4.95:1 on base ·  5.35:1 on raised */
-  --text-inverse:    #FFFFFF;
-
-  --accent:          #E4FF4F;   /* stays: it is a highlighter, it is meant to glare */
-  --accent-ink:      #0D1017;   /* 16.96:1 on accent */
-  --accent-dim:      #5A6B00;   /*  5.49:1 on base — accent is unusable as text on light */
-  --accent-tint:     #F4FFC7;
-  --accent-glow:     rgba(90, 107, 0, 0.22);
-
-  --v-supported-core:      #0A7A55;  /* white on it 5.35:1 · on raised 5.35:1 */
-  --v-supported-text:      #0A7A55;
-  --v-supported-tint:      #D9E7E5;  /* text-primary on it 14.96:1 · core on it 4.20:1 (border only) */
-  --v-supported-tint-r:    #D9E7E5;
-  --v-supported-prov:      #E7F1EF;
-  --v-supported-ink:       #FFFFFF;
-
-  --v-contradicted-core:   #C81E1E;  /* white on it 5.74:1 */
-  --v-contradicted-text:   #C81E1E;
-  --v-contradicted-tint:   #F0DCDF;  /* text-primary on it 14.51:1 */
-  --v-contradicted-tint-r: #F0DCDF;
-  --v-contradicted-prov:   #F7EAEC;
-  --v-contradicted-ink:    #FFFFFF;
-
-  --v-partial-core:        #8F5100;  /* white on it 6.28:1 */
-  --v-partial-text:        #8F5100;
-  --v-partial-tint:        #E9E2DB;  /* text-primary on it 14.83:1 */
-  --v-partial-tint-r:      #E9E2DB;
-  --v-partial-prov:        #F3EFEA;
-  --v-partial-ink:         #FFFFFF;
-
-  --v-disputed-core:       #0B6BAF;  /* white on it 5.62:1 */
-  --v-disputed-text:       #0B6BAF;
-  --v-disputed-tint:       #D9E5F0;  /* text-primary on it 14.88:1 */
-  --v-disputed-tint-r:     #D9E5F0;
-  --v-disputed-prov:       #E8F0F7;
-  --v-disputed-ink:        #FFFFFF;
-
-  --v-insufficient-core:   #525A6B;  /* white on it 6.92:1 */
-  --v-insufficient-text:   #525A6B;
-  --v-insufficient-tint:   #E1E3E8;  /* text-primary on it 14.82:1 */
-  --v-insufficient-tint-r: #E1E3E8;
-  --v-insufficient-prov:   #EDEEF2;
-  --v-insufficient-ink:    #FFFFFF;
-
-  --v-salad-core:          #646472;  /* white on it 5.82:1 */
-  --v-salad-text:          #646472;
-  --v-salad-tint:          #E4E4E9;  /* text-primary on it 15.02:1 */
-  --v-salad-tint-r:        #E4E4E9;
-  --v-salad-prov:          #EFEFF3;
-  --v-salad-ink:           #FFFFFF;
-
-  --tier-1-fg:     #FFFFFF;
-  --tier-1-bg:     #2A3142;
-  --tier-1-border: #2A3142;
-  --tier-2-fg:     #454C5C;
-  --tier-2-border: #454C5C;
-  --tier-3-fg:     #636B7C;
-  --tier-3-border: #636B7C;
-  --tier-4-fg:     #C81E1E;
-  --tier-4-bg:     #F0DCDF;
-  --tier-4-border: #C81E1E;
-
-  --conf-fill:     #454C5C;
-  --conf-empty:    #D8DCE5;
-  --conf-label:    #454C5C;
-
-  --focus-ring:    #5A6B00;
-  --selection-bg:  #E4FF4F;
-  --selection-fg:  #0D1017;
-  --error-core:    #C81E1E;
-  --error-text:    #C81E1E;
-  --live-dot:      #C81E1E;
-
-  --shadow-sticker: 0 1px 0 rgba(13, 16, 23, 0.22), 0 2px 6px rgba(13, 16, 23, 0.12);
-  --shadow-sheet:   0 -8px 40px rgba(13, 16, 23, 0.18);
-}
-
-/* =============================================================================
-   REDUCED MOTION — durations collapse to near-zero. Components must ALSO swap
-   their transform-based animations for the opacity-only fallbacks named in
-   docs/DESIGN-SYSTEM.md §5. Zeroing time alone is not enough.
-   ========================================================================== */
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --motion-scale: 0;
-    --dur-instant: 1ms;
-    --dur-fast:    1ms;
-    --dur-base:  120ms;  /* kept: a pure cross-fade is safe and preserves "something changed" */
-    --dur-slow:  120ms;
-    --dur-land:  120ms;
-    --dur-sweep:   0ms;  /* the looping sweep is removed entirely, not slowed */
-    --ease-back:   linear;
-    --ease-snap:   linear;
+    --dur-fast: 1ms; --dur-base: 1ms; --dur-line: 1ms;
+    --dur-field: 1ms; --dur-sweep: 1ms;
   }
 }
 
-/* =============================================================================
-   FORCED COLORS (Windows high contrast / some projector modes)
-   Colour is gone, so the non-colour signals carry the whole load. Keep the
-   border-styles, drop the fills.
-   ========================================================================== */
-@media (forced-colors: active) {
-  :root {
-    --shadow-sticker: none;
-    --shadow-sheet:   none;
-  }
 }
-
-} /* @layer tokens */

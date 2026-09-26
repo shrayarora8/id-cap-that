@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+import time
 from contextlib import suppress
 from pathlib import Path
 
@@ -18,8 +20,10 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config, messages
 from .chunker import Chunker, Window
+from .judge import judge_claim
 from .llm import BudgetExceeded
 from .prefilter import worth_checking
+from .retrieval import credits_used, deepen, search, snippets_as_evidence
 from .session import Session
 from .sorter import find_claims
 from .spans import locate
@@ -199,6 +203,31 @@ def emit_final(session: Session, text: str) -> None:
         session.chunker.add_segment(segment_id, text)
 
 
+# Cheap textual test for "is a search plausibly worth starting before we know
+# what the claim is". Deliberately crude: it only has to be right often enough
+# that the wasted searches cost less than the saved seconds.
+_FACTUAL_HINTS = re.compile(
+    r"\d|\bpercent\b|\bmost\b|\bbiggest\b|\bfirst\b|\bever\b|"
+    r"\bcosts?\b|\bcharges?\b|\bworth\b|\bwon\b|\bscored\b|\bsold\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_checkable(text: str) -> bool:
+    """A number, a superlative or a factual verb. Proper nouns alone are not
+    enough -- "I think Bruno is a good dog" has one and is not checkable."""
+    return bool(_FACTUAL_HINTS.search(text))
+
+
+async def _speculative_search(text: str) -> None:
+    """Warm the cache while the sorter is still reading. Failure is fine:
+    the real search runs regardless and will simply not find a cache entry."""
+    try:
+        await search(text, text)
+    except Exception as exc:  # noqa: BLE001
+        log.info("speculative search did not land: %s", exc)
+
+
 def on_window_closed(session: Session, window: Window) -> None:
     """A window of speech is complete: show it, then decide what it costs."""
     log.info("window %s closed by %s: %r", window.window_id, window.reason, window.text)
@@ -223,7 +252,27 @@ def on_window_closed(session: Session, window: Window) -> None:
 
 
 async def check_window(session: Session, window: Window) -> None:
-    """Ask Claude what was claimed, then start a job per claim."""
+    """Ask Claude what was claimed, then start a job per claim.
+
+    The search is fired speculatively at the same time, on the raw window
+    text, rather than waiting for the sorter to write a better query. Both
+    calls take roughly two seconds, so running them in sequence spends four
+    seconds to do two seconds of work.
+
+    The sorter's query is usually better than the raw text, so when it comes
+    back materially different we search again -- but by then the speculative
+    results are already in the on-disk cache and, more often than not, the
+    sorter's query overlaps enough that the second search is a cache hit or a
+    cheap addition. When the window turns out to contain no checkable claim
+    the speculative search is wasted: one credit, against nearly two seconds
+    off every verdict that does happen.
+    """
+    speculative = None
+    if _looks_checkable(window.text):
+        speculative = session.spawn(
+            _speculative_search(window.text)
+        )
+
     try:
         claims = await find_claims(window.text, window.context)
     except BudgetExceeded as exc:
@@ -278,11 +327,154 @@ async def check_window(session: Session, window: Window) -> None:
             )
             continue
 
-        # Stage 6 fetches evidence and judges. Until then say so honestly,
-        # rather than leaving the claim pulsing forever.
+        if not session.spend_claim():
+            session.send(messages.claim_error(claim_id, "budget", "demo budget used up"))
+            session.send(
+                messages.budget_update(
+                    claims_left=0, claims_cap=session.claims_cap, pool=session.pool,
+                    exhausted=True, note="add your own keys to keep going",
+                )
+            )
+            continue
+
         session.send(
-            messages.claim_status(claim_id, "queued", "evidence check not built yet")
+            messages.budget_update(
+                claims_left=session.claims_left,
+                claims_cap=session.claims_cap,
+                pool=session.pool,
+            )
         )
+        # Its own job, so several claims resolve at once while the
+        # conversation carries on.
+        session.spawn(check_claim(session, claim_id, claim))
+
+
+async def check_claim(session: Session, claim_id: str, claim) -> None:
+    """Find evidence for one claim and judge it against that evidence.
+
+    Two depths. Search snippets first: free, already relevant, one round trip,
+    and enough for most claims -- that is what makes a verdict land in about
+    four seconds. If the judge says its evidence was too thin, and only then,
+    fetch the pages and judge again.
+
+    The escalation decision is the judge's, returned in a field of a response
+    we were already paying for. That is the agentic part: the system decides
+    for itself whether it has enough, but the control flow stays ours, so the
+    latency and the spend are both bounded.
+    """
+    started = time.monotonic()
+    timings: dict[str, int] = {}
+
+    def mark(name: str, since: float) -> float:
+        timings[name] = int((time.monotonic() - since) * 1000)
+        return time.monotonic()
+
+    def status(stage: str, detail: str = "") -> None:
+        session.send(messages.claim_status(claim_id, stage, detail))
+
+    try:
+        leg = time.monotonic()
+        status("searching", f"searching {claim.official_domain or 'the web'}")
+        hits = await search(
+            claim.search_query or claim.normalized,
+            claim.normalized,
+            claim.official_domain,
+            lambda msg: status("searching", msg),
+        )
+        leg = mark("search", leg)
+
+        evidence = snippets_as_evidence(hits)
+        # Sent the moment we have it, thin or not: sources appearing before
+        # the verdict is what makes the wait feel like work happening.
+        send_evidence(session, claim_id, evidence, "snippets")
+
+        status("judging", f"weighing {len(evidence)} snippet(s)")
+        judgement, notes = await judge_claim(claim.normalized, evidence, claim.shape)
+        leg = mark("judge", leg)
+
+        deep_enough = not judgement.needs_full_pages or not hits
+        send_verdict(
+            session, claim_id, judgement,
+            stage="confirmed" if deep_enough else "provisional",
+            depth="snippets", started=started, timings=timings,
+        )
+
+        if deep_enough:
+            log_result(claim_id, judgement, notes, timings)
+            return
+
+        # The judge asked to read further. This is the only path that costs
+        # more than one Firecrawl credit.
+        status("escalating", "snippets were thin, reading the pages")
+        evidence = await deepen(
+            claim.normalized, hits, lambda msg: status("reading", msg)
+        )
+        leg = mark("escalate", leg)
+
+        if not evidence:
+            log_result(claim_id, judgement, notes, timings)
+            return
+
+        send_evidence(session, claim_id, evidence, "pages")
+        status("judging", f"weighing {len(evidence)} passage(s)")
+        judgement, notes = await judge_claim(claim.normalized, evidence, claim.shape)
+        mark("rejudge", leg)
+
+        send_verdict(
+            session, claim_id, judgement, stage="confirmed", depth="pages",
+            started=started, timings=timings,
+        )
+        log_result(claim_id, judgement, notes, timings)
+
+    except BudgetExceeded as exc:
+        session.send(messages.claim_error(claim_id, "budget", str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("checking claim %s failed", claim_id)
+        session.send(messages.claim_error(claim_id, "check", str(exc)))
+
+
+def send_evidence(session: Session, claim_id: str, evidence, depth: str) -> None:
+    session.send(
+        messages.claim_evidence(
+            claim_id,
+            [
+                messages.evidence_item(e.evidence_id, e.url, e.title, e.tier, e.text)
+                for e in evidence
+            ],
+            depth=depth,
+        )
+    )
+
+
+def send_verdict(
+    session: Session, claim_id: str, judgement, stage: str, depth: str,
+    started: float, timings: dict,
+) -> None:
+    session.send(
+        messages.claim_verdict(
+            claim_id=claim_id,
+            verdict=judgement.verdict,
+            sticker=messages.STICKERS.get(judgement.verdict, judgement.verdict),
+            summary=judgement.summary,
+            stage=stage,
+            citations=[messages.citation(c.evidence_id, c.quote) for c in judgement.citations],
+            depth=depth,
+            took_ms=int((time.monotonic() - started) * 1000),
+            timings=timings,
+            correction=judgement.correction,
+            confidence=judgement.confidence,
+        )
+    )
+
+
+def log_result(claim_id: str, judgement, notes: list[str], timings: dict) -> None:
+    log.info(
+        "claim %s -> %s | %s | %s | %d firecrawl credits so far",
+        claim_id, judgement.verdict,
+        " ".join(f"{k}={v}ms" for k, v in timings.items()),
+        "; ".join(notes) or "clean",
+        credits_used(),
+    )
 
 
 # --- the microphone ---------------------------------------------------------

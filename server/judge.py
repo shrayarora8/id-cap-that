@@ -1,0 +1,446 @@
+"""The verdict, and the checks that keep it honest.
+
+Claude reads the claim and the passages and returns a verdict plus the exact
+quotes it relied on. Then our own code verifies those quotes really appear.
+
+That check is the whole difference between "an AI said so" and "here is the
+sentence on the page that says so". A model can produce a confident verdict
+supported by a quote it invented; a substring test cannot be fooled by
+confidence. A prompt is a request. A substring test and a subtraction are not
+negotiable.
+
+The system never claims to know the truth. Every verdict means: according to
+the evidence we retrieved.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import logging
+import re
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from . import config, llm
+from .retrieval import Evidence
+
+log = logging.getLogger(__name__)
+
+Verdict = Literal[
+    "SUPPORTED", "CONTRADICTED", "PARTIALLY_SUPPORTED", "DISPUTED",
+    "INSUFFICIENT_EVIDENCE",
+]
+
+
+class Citation(BaseModel):
+    evidence_id: str = Field(description="Which passage, e.g. E2")
+    quote: str = Field(
+        description=(
+            "A sentence or fragment copied VERBATIM from that passage. It is "
+            "checked character by character against the passage text."
+        )
+    )
+
+
+class Judgement(BaseModel):
+    verdict: Verdict
+    claimed_value: str = Field(
+        default="",
+        description=(
+            "The quantity the claim asserts, if any, as a plain number with its "
+            "unit: '500 dollars per user per month', '45 goals'. Empty when the "
+            "claim is not about a quantity."
+        ),
+    )
+    evidence_value: str = Field(
+        default="",
+        description=(
+            "The corresponding quantity the passages state, same format. Empty "
+            "unless a passage states it outright."
+        ),
+    )
+    summary: str = Field(
+        description="One sentence, starting from what the evidence says, not from what you know."
+    )
+    citations: list[Citation] = Field(default_factory=list)
+    correction: str = Field(
+        default="",
+        description=(
+            "If the evidence states a different value than the claim, the correct "
+            "value as the evidence gives it, e.g. '38 goals, not 45'. Empty unless "
+            "a passage states it outright. Never inferred or remembered."
+        ),
+    )
+    needs_full_pages: bool = Field(
+        default=False,
+        description=(
+            "True if these passages are too thin to settle the claim and reading "
+            "the full pages would plausibly help. Set this instead of guessing. "
+            "False when the passages settle it, and also false when no amount of "
+            "reading would help because the claim is not about these sources."
+        ),
+    )
+    # Filled in by our code afterwards, never by the model.
+    confidence: str = "none"
+
+
+SYSTEM = """You decide what retrieved evidence says about a claim. You are not \
+deciding what is true in the world; you are reporting what these passages say.
+
+Rules:
+- Use ONLY the passages provided. Ignore anything you know from training.
+- Every verdict except INSUFFICIENT_EVIDENCE must cite at least one passage, \
+with a quote copied VERBATIM from it. Find the sentence in the passage that \
+settles the claim and copy it exactly, word for word, including its wording and \
+punctuation. Do NOT rewrite it, summarise it, or compose a sentence that says \
+the same thing in better words -- that is the single most common way this fails. \
+Quote one sentence or less. Quotes are checked character by character against \
+the passage, and a quote that is not found invalidates the verdict.
+- Prefer higher-trust passages. Tier 1 is a primary or reference source, tier 2 \
+is serious reporting, tier 3 is unknown, tier 4 is a forum or social post.
+- Watch the dates. A claim about "last season" must be judged against the right \
+season, not any season.
+- You MAY read what a passage plainly means. Final standings showing a driver \
+first with the most points means he won that championship. A table row \
+"Business - $20 per seat/month" means the Business plan costs $20. That is \
+reading, not guessing.
+- You may NOT compute a quantity out of other quantities. Minutes played divided \
+by minutes per goal is not a goal total. If the number you would report exists \
+nowhere in the passages, the answer is INSUFFICIENT_EVIDENCE.
+- You may NOT stitch two passages together into a conclusion neither of them \
+states. "Hamilton has 7 titles" plus "Norris was crowned champion in 2025" does \
+NOT tell you who has the most titles: one is a count, the other is an event, and \
+nothing ranks them. One passage must contain the answer. If your reasoning \
+contains the word "so" or "which means" across two different passages, the \
+answer is INSUFFICIENT_EVIDENCE.
+- Hedging is about the speaker, not the world. "Approximately five", "I think \
+five" and "about five" are all the claim FIVE. If the evidence says four, that \
+is CONTRADICTED, not partially supported. Only treat a number as approximate \
+when the claim itself is a range or the difference is rounding (45.2 versus 45).
+
+What counts as enough, by claim shape (given to you with the claim):
+- count: a passage must state the quantity.
+- event: a passage must state that the thing happened.
+- comparison ("the most", "more than anyone", "the best", "the first"): a \
+passage must actually RANK them, or say outright that this one holds the record. \
+A page about one subject, however detailed, cannot settle who leads. If no \
+ranking is present, say INSUFFICIENT_EVIDENCE, even when you are confident you \
+know the answer.
+- Ties: if the evidence shows the subject is JOINT top, a claim of "the most" is \
+PARTIALLY_SUPPORTED. Not CONTRADICTED, because they do lead; not SUPPORTED, \
+because they do not lead alone. Say so in the summary.
+
+Verdicts:
+- SUPPORTED: the passages state the claim, or state something that plainly \
+entails it.
+- CONTRADICTED: the passages state something incompatible with the claim.
+- PARTIALLY_SUPPORTED: right in part. Correct number but wrong scope, correct \
+event but wrong year, one half of a compound claim right and the other wrong.
+- DISPUTED: credible passages disagree with EACH OTHER. Not for when you are \
+unsure.
+- INSUFFICIENT_EVIDENCE: the passages do not address the claim, are too vague, \
+or only touch it from low-trust sources. This is the honest default.
+
+`needs_full_pages`: these passages may be short search-result descriptions. If \
+they are too thin to settle the claim but the pages behind them would plausibly \
+contain the answer, set it true and answer INSUFFICIENT_EVIDENCE for now. Set it \
+false when the passages settle the claim, and false when reading further would \
+not help because these sources are simply not about the claim.
+
+`correction`: when the evidence states a different value than the claim, give \
+that value as the passage words it. Only when a passage says it outright.
+
+`summary`: one sentence, phrased as what the evidence says. Never "I know that"."""
+
+
+def build_prompt(claim: str, evidence: list[Evidence], shape: str = "other") -> str:
+    today = dt.date.today().isoformat()
+    blocks = [
+        f"[{item.evidence_id}] tier {item.tier} | {item.title or item.url}\n{item.text}"
+        for item in evidence
+    ]
+    passages = "\n\n".join(blocks) if blocks else "(no passages were retrieved)"
+    return (
+        f"Today's date: {today}\n\n"
+        f"Claim shape: {shape}\n"
+        f"Claim:\n{claim}\n\n"
+        f"Passages:\n{passages}"
+    )
+
+
+# --- the guard rails --------------------------------------------------------
+
+# Typographic characters that mean the same as their plain equivalent. A page
+# writes Drivers' Championship with a curly apostrophe; the model retypes it
+# straight; a character-by-character check then rejects a quote that is
+# genuinely on the page. "Verbatim" is a decision, not a fact: decide which
+# differences are meaningless, normalise both sides, stay strict about the rest.
+PUNCTUATION_EQUIVALENTS = {
+    "‘": "'", "’": "'", "‛": "'", "´": "'", "`": "'",
+    "“": '"', "”": '"', "„": '"',
+    "–": "-", "—": "-", "−": "-", "‐": "-", "‑": "-",
+    " ": " ", "…": "...",
+}
+
+
+def _normalise(text: str) -> str:
+    for fancy, plain in PUNCTUATION_EQUIVALENTS.items():
+        text = text.replace(fancy, plain)
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+MIN_QUOTE_CHARS = 40
+
+
+def longest_verbatim_prefix(quote: str, passage: str) -> str | None:
+    """The longest opening slice of `quote` that is word-for-word in the passage.
+
+    A model that mistypes the last word of an otherwise real sentence has not
+    invented anything, so we cite exactly the part that is genuinely there.
+    """
+    words = quote.split()
+    for count in range(len(words), 2, -1):
+        candidate = " ".join(words[:count])
+        if _normalise(candidate) in passage:
+            return candidate if len(candidate) >= MIN_QUOTE_CHARS else None
+    return None
+
+
+def find_sentence_by_overlap(text: str, evidence: list[Evidence]) -> Citation | None:
+    """Find the passage sentence that best matches what the model told us.
+
+    The numeric rescue only helps when the disagreement is about a quantity.
+    "Norris won it, not Verstappen" has no number in it, so instead look for
+    the sentence sharing the most distinctive words, and accept it only when
+    the overlap is strong enough to be the same statement.
+    """
+    from .sources import keywords
+
+    wanted = keywords(text)
+    if len(wanted) < 3:
+        return None
+
+    best: tuple[float, Citation] | None = None
+    for item in evidence:
+        for sentence in re.split(r"(?<=[.!?])\s+", item.text):
+            if len(sentence.strip()) < MIN_QUOTE_CHARS:
+                continue
+            overlap = len(wanted & keywords(sentence)) / len(wanted)
+            if overlap >= 0.5 and (best is None or overlap > best[0]):
+                best = (overlap, Citation(evidence_id=item.evidence_id, quote=sentence.strip()))
+    return best[1] if best else None
+
+
+def find_supporting_sentence(value: str, evidence: list[Evidence]) -> Citation | None:
+    """Locate a sentence stating `value` and cite it.
+
+    Deterministic: it searches for the number, in digits or words, and returns
+    the real sentence around it, so the citation is still something a person
+    can go and check on the page.
+    """
+    number = first_number(value)
+    if number is None:
+        return None
+
+    as_digits = f"{number:g}"
+    as_word = next((w for w, v in WORD_NUMBERS.items() if v == number), None)
+
+    for item in evidence:
+        for sentence in re.split(r"(?<=[.!?])\s+", item.text):
+            hay = _normalise(sentence)
+            hit = re.search(rf"\b{re.escape(as_digits)}\b", hay)
+            if not hit and as_word:
+                hit = re.search(rf"\b{as_word}\b", hay)
+            if hit and len(sentence.strip()) >= MIN_QUOTE_CHARS:
+                return Citation(evidence_id=item.evidence_id, quote=sentence.strip())
+    return None
+
+
+def verify_citations(
+    judgement: Judgement, evidence: list[Evidence]
+) -> tuple[list[Citation], list[Citation]]:
+    """Split citations into those really on the page and those that are not.
+
+    A partial match is trimmed to the part genuinely there, so whatever is
+    displayed is always verbatim.
+    """
+    by_id = {item.evidence_id: _normalise(item.text) for item in evidence}
+    good, bad = [], []
+
+    for citation in judgement.citations:
+        passage = by_id.get(citation.evidence_id)
+        if not passage:
+            bad.append(citation)
+            continue
+        if _normalise(citation.quote) in passage:
+            good.append(citation)
+            continue
+        trimmed = longest_verbatim_prefix(citation.quote, passage)
+        if trimmed:
+            good.append(Citation(evidence_id=citation.evidence_id, quote=trimmed))
+        else:
+            bad.append(citation)
+
+    return good, bad
+
+
+NEEDS_CITATION = {"SUPPORTED", "CONTRADICTED", "PARTIALLY_SUPPORTED", "DISPUTED"}
+
+WORD_NUMBERS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+}
+
+NUMBER_TOLERANCE = 0.05
+# A word qualifier needs a space after it, or "over" would eat the start of
+# "overall". The "~" symbol is written flush against its number, so it gets its
+# own branch rather than a looser rule that would let word qualifiers match
+# inside longer words.
+QUALIFIER_PREFIX = (
+    r"(?:(?:about|approximately|approx|nearly|roughly|around|almost|over|under|some)\s+|~\s*)"
+)
+
+
+def first_number(text: str) -> float | None:
+    """The quantity a value is ABOUT, or None when it is not about a quantity.
+
+    Only the LEADING number counts. Scanning the whole string found the "One"
+    in "most Formula One championships", compared 1 against 7, and turned a
+    tie into a confident contradiction. A guard rail that fires on a false
+    positive is worse than no guard rail, because it overrides a correct
+    answer with a wrong one. So parse the grammar of a quantity -- an optional
+    qualifier, an optional currency symbol, the number, its unit -- rather
+    than scanning for a pattern anywhere in the string.
+    """
+    if not text:
+        return None
+
+    cleaned = re.sub(rf"^\s*{QUALIFIER_PREFIX}", "", text.strip(), flags=re.IGNORECASE)
+    cleaned = cleaned.lstrip("$£€")
+
+    digits = re.match(r"-?\d[\d,]*\.?\d*", cleaned)
+    if digits:
+        try:
+            return float(digits.group().replace(",", ""))
+        except ValueError:
+            return None
+
+    first_word = re.match(r"[a-z]+", cleaned, re.IGNORECASE)
+    if first_word:
+        value = WORD_NUMBERS.get(first_word.group().lower())
+        if value is not None:
+            return float(value)
+    return None
+
+
+def compare_values(claimed: str, stated: str) -> str | None:
+    """'match', 'mismatch', or None when there is nothing to compare.
+
+    Arithmetic belongs in code. A model has been watched being too lenient
+    ("approximately five" against four) and too clever (deriving a goal total
+    from minutes played), so the comparison is not left to prompting.
+    """
+    a, b = first_number(claimed), first_number(stated)
+    if a is None or b is None:
+        return None
+    if a == b:
+        return "match"
+    scale = max(abs(a), abs(b))
+    return "match" if abs(a - b) / scale <= NUMBER_TOLERANCE else "mismatch"
+
+
+def confidence_from(tiers: list[int]) -> str:
+    """How much the sources are worth, kept SEPARATE from the verdict.
+
+    Mixing the two produced a real inconsistency: a contradiction became a
+    weaker verdict purely because the citation happened to sit on a domain
+    that was not in one of our lists. What the evidence says and how good the
+    source is are two different questions.
+    """
+    if not tiers:
+        return "none"
+    return {1: "high", 2: "high", 3: "medium"}.get(min(tiers), "low")
+
+
+def apply_guard_rails(
+    judgement: Judgement, evidence: list[Evidence]
+) -> tuple[Judgement, list[str]]:
+    """Downgrade anything the evidence does not actually support.
+
+    Returns the judgement and a list of what changed, so the reason is visible
+    in the logs rather than silently applied.
+    """
+    notes: list[str] = []
+    good, bad = verify_citations(judgement, evidence)
+
+    if bad:
+        notes.append(f"{len(bad)} quote(s) not found in the passages, dropped")
+        log.warning("judge invented quotes: %s", [c.quote[:60] for c in bad])
+    judgement.citations = good
+
+    # Last chance before throwing away a correct verdict: the model often gets
+    # the fact right and the transcription wrong. If it told us what value the
+    # evidence states, go and find the sentence that states it ourselves.
+    if judgement.verdict in NEEDS_CITATION and not good:
+        rescued = find_supporting_sentence(
+            judgement.evidence_value, evidence
+        ) or find_sentence_by_overlap(
+            judgement.correction or judgement.summary, evidence
+        )
+        if rescued:
+            notes.append("quote rewritten by the model, recovered from the passage")
+            good = [rescued]
+            judgement.citations = good
+
+    if judgement.verdict in NEEDS_CITATION and not good:
+        notes.append("no verifiable quote, so the verdict cannot stand")
+        judgement.verdict = "INSUFFICIENT_EVIDENCE"
+
+    comparison = compare_values(judgement.claimed_value, judgement.evidence_value)
+    if comparison == "mismatch" and judgement.verdict in {"SUPPORTED", "PARTIALLY_SUPPORTED"}:
+        notes.append(
+            f"{judgement.claimed_value!r} vs {judgement.evidence_value!r} is a real "
+            "difference, not a rounding one"
+        )
+        judgement.verdict = "CONTRADICTED"
+    # Deliberately one-directional. A mismatch is hard evidence that the claim
+    # and the sources disagree. A match proves nothing on its own: "Verstappen
+    # won in 2025" against "Norris won in 2025" matches on the year while
+    # being flatly wrong about the person. Upgrading on a match turned a
+    # correct ABSOLUTE CAP into NO CAP, so we never upgrade.
+
+    cited_tiers = [
+        item.tier for item in evidence
+        if any(c.evidence_id == item.evidence_id for c in judgement.citations)
+    ]
+    judgement.confidence = confidence_from(cited_tiers)
+
+    return judgement, notes
+
+
+async def judge_claim(
+    claim: str, evidence: list[Evidence], shape: str = "other"
+) -> tuple[Judgement, list[str]]:
+    if not evidence:
+        return (
+            Judgement(
+                verdict="INSUFFICIENT_EVIDENCE",
+                summary="No sources were found for this one.",
+                needs_full_pages=False,
+            ),
+            ["no evidence retrieved"],
+        )
+
+    judgement = await llm.ask(
+        model=config.JUDGE_MODEL,
+        system=SYSTEM,
+        user=build_prompt(claim, evidence, shape),
+        schema=Judgement,
+        max_tokens=700,
+    )
+    judgement, notes = apply_guard_rails(judgement, evidence)
+    log.info("judge: %s (%s)", judgement.verdict, "; ".join(notes) or "clean")
+    return judgement, notes

@@ -4,12 +4,14 @@
 // WebSocket or any API response: this app's entire value is live evidence,
 // and a stale verdict served from a cache would be worse than no verdict.
 
-const SHELL = "cap-shell-v1";
+const SHELL = "cap-shell-v2";
 const FILES = [
   "/",
   "/index.html",
-  "/css/scaffold.css",
+  "/css/tokens.css",
+  "/css/app.css",
   "/js/app.js",
+  "/js/sound.js",
   "/js/ws.js",
   "/js/state.js",
   "/js/render.js",
