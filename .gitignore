@@ -1,0 +1,14 @@
+# Secrets. Never commit.
+.env
+
+# Caches that cost money to refill but must not be in git.
+.cache/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Recorded sessions are large and personal; fixtures are committed explicitly.
+recordings/
+
+.DS_Store
