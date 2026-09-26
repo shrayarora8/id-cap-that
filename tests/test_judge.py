@@ -406,3 +406,32 @@ def test_identical_numbers_never_upgrade_a_partial_verdict():
     )
     result, _ = apply_guard_rails(j, evidence, "Messi scored 45 goals in 2024", shape="count")
     assert result.verdict == "PARTIALLY_SUPPORTED"
+
+
+def test_a_passage_is_relevant_when_it_names_the_subject():
+    """The bug this pins: a real Wikipedia passage about Everest was rejected
+    as off-topic because it wrote "metres", never repeated "Mount Everest" in
+    the sentence, and a ratio of shared words therefore scored near zero.
+
+    The name of the thing is a far stronger signal than how much vocabulary a
+    claim happens to share with a page, and one hit is enough."""
+    evidence = [ev("E1", "The official measurement announced by China and Nepal in December 2020 is 8,848.86 metres.")]
+    evidence[0].title = "Mount Everest"
+    assert evidence_is_about_the_claim(
+        "Mount Everest is 8,848 meters tall",
+        [Citation(evidence_id="E1", quote="x")],
+        evidence,
+    )
+
+
+def test_a_nameless_claim_cannot_be_rescued_by_a_matching_title():
+    """Loosening relevance must not let the Fifty Seconds restaurant back in.
+    A title is a good place to find a name and a bad place to match generic
+    words -- the restaurant is literally called Fifty Seconds."""
+    evidence = [ev("E1", "Access is via a lift that takes exactly 50 seconds to reach the top.")]
+    evidence[0].title = "Fifty Seconds restaurant"
+    assert not evidence_is_about_the_claim(
+        "The process took fifty seconds.",
+        [Citation(evidence_id="E1", quote="x")],
+        evidence,
+    )

@@ -116,8 +116,24 @@ contains the word "so" or "which means" across two different passages, the \
 answer is INSUFFICIENT_EVIDENCE.
 - Hedging is about the speaker, not the world. "Approximately five", "I think \
 five" and "about five" are all the claim FIVE. If the evidence says four, that \
-is CONTRADICTED, not partially supported. Only treat a number as approximate \
-when the claim itself is a range or the difference is rounding (45.2 versus 45).
+is CONTRADICTED, not partially supported.
+
+WHEN A NUMBER IS CLOSE ENOUGH. This matters as much as catching a wrong one: a \
+verdict that calls someone a liar over a decimal place makes every other \
+verdict less believable.
+- Stating a number to fewer decimal places is NOT a disagreement. "Mount \
+Everest is 8,848 metres" against evidence saying 8,848.86 metres is SUPPORTED. \
+Put the exact figure in `correction` if it is worth knowing; do not downgrade \
+the verdict for it.
+- A figure that WAS official and has since been revised is not a lie. 8,848 \
+metres was the accepted height from 1954 until the 2020 survey and is still \
+printed everywhere. Someone repeating it is right in every sense that matters: \
+SUPPORTED, with the revision noted in `correction`.
+- Rounding is normal speech. "About four hundred employees" against 412 is \
+SUPPORTED; "a ten billion dollar valuation" against $10.2bn is SUPPORTED.
+- The test is whether the difference would change what a listener understood. \
+8,848 against 8,848.86 would not. 8,848 against 9,000 would, and that is \
+CONTRADICTED.
 
 What counts as enough, by claim shape (given to you with the claim):
 - count: a passage must state the quantity.
@@ -342,28 +358,79 @@ def evidence_names_everyone_in_the_claim(
     return False
 
 
-def evidence_is_about_the_claim(claim: str, citations: list[Citation], evidence: list[Evidence]) -> bool:
-    """Does any cited passage actually share the claim's subject?"""
+_NOT_A_NAME = {
+    "the", "this", "that", "these", "those", "and", "but", "so", "which",
+    "they", "it", "we", "you", "he", "she", "there", "here", "what", "when",
+    "why", "how", "oh", "yeah", "anyway", "honestly", "sorry", "okay", "hey",
+    "did", "right", "also", "now", "just", "actually", "well", "about", "a",
+    "an", "in", "on", "at", "of", "for", "is", "was", "are", "his", "her",
+    "their", "its", "my", "our", "your",
+}
+
+
+def claim_names(claim: str) -> set[str]:
+    """The capitalised words a claim is about, one by one.
+
+    Single words rather than phrases: a page about Mount Everest very often
+    says only "Everest", and the name of the thing is a far stronger signal
+    than how much vocabulary a claim happens to share with a page.
+    """
+    return {
+        w.lower()
+        for w in re.findall(r"\b[A-Z][A-Za-z0-9\u2019']+", claim)
+        if w.lower() not in _NOT_A_NAME
+    }
+
+
+def evidence_is_about_the_claim(
+    claim: str, citations: list[Citation], evidence: list[Evidence]
+) -> bool:
+    """Is a cited passage actually about the same thing as the claim?
+
+    The bug this exists for: someone said the fragment "Fifty seconds." The
+    search found a Lisbon restaurant of that name, a passage genuinely said
+    "a lift takes exactly 50 seconds", the quote verified, and the verdict
+    was NO CAP. Every step behaved correctly and the answer was nonsense.
+
+    Two tests, in order of how much they tell us:
+
+      1. If the claim names something, that name must appear in the passage
+         or its title. One hit is enough -- a page about Everest does not
+         repeat "Mount Everest" in every sentence, and requiring a ratio of
+         shared words rejected a perfectly good Wikipedia passage because it
+         wrote "metres" and never repeated the mountain's name.
+      2. Only when the claim names nothing do we fall back to shared
+         vocabulary, which is then all there is.
+
+    Numbers never count. A passage that CONTRADICTS a claim cannot contain
+    the claim's number -- that is precisely what makes it a contradiction --
+    so counting it punished the case we care most about. "Python was invented
+    in 1995" scored 0.333 against a passage saying 1991 and was discarded as
+    off-topic, one thousandth below the threshold.
+    """
     from .sources import keywords
 
-    # Numbers are excluded deliberately. A passage that CONTRADICTS a claim
-    # cannot contain the claim's number -- that is what makes it a
-    # contradiction. Counting it dragged "Python was invented in 1995"
-    # against a Wikipedia passage saying 1991 down to 0.333, just under the
-    # threshold, and a correct ABSOLUTE CAP was thrown away as off-topic.
-    # Relevance is about the SUBJECT; whether the numbers agree is a separate
-    # question with its own guard rail.
-    wanted = {w for w in keywords(claim) if not any(c.isdigit() for c in w)}
-    if len(wanted) < 2:
-        # Too few distinctive words to judge relevance either way. A claim
-        # this thin is not something we should be answering at all.
+    by_id = {item.evidence_id: item for item in evidence}
+    cited = [by_id[c.evidence_id] for c in citations if c.evidence_id in by_id]
+    if not cited:
         return False
 
-    by_id = {item.evidence_id: item for item in evidence}
-    for citation in citations:
-        item = by_id.get(citation.evidence_id)
-        if not item:
-            continue
+    names = claim_names(claim)
+    if names:
+        return any(
+            any(name in f"{item.title} {item.text}".lower() for name in names)
+            for item in cited
+        )
+
+    wanted = {w for w in keywords(claim) if not any(c.isdigit() for c in w)}
+    if len(wanted) < 2:
+        return False
+
+    for item in cited:
+        # Title deliberately excluded here. A title is a good place to find a
+        # NAME and a bad place to match generic words: the Lisbon restaurant
+        # is called "Fifty Seconds", so matching a nameless claim against
+        # titles lets the exact failure this guard exists for straight back in.
         found = {w for w in keywords(item.text) if not any(c.isdigit() for c in w)}
         if len(wanted & found) / len(wanted) >= MIN_SUBJECT_OVERLAP:
             return True
