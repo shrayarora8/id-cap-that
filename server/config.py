@@ -60,6 +60,12 @@ WINDOW_MAX_SENTENCES = 3
 # ...and this many regardless, or a speaker who never pauses would never be
 # checked at all.
 WINDOW_HARD_MAX_SENTENCES = 6
+
+# How many previous windows the sorter sees when resolving "it" and "they".
+# One was not enough: in real speech the subject is often several sentences
+# back, with asides in between, and an unresolvable pronoun means the claim is
+# either dropped or searched for with no idea who it is about.
+CONTEXT_WINDOWS = 4
 WINDOW_SILENCE_MS = 1000
 # A real stop: close whatever is pending, however unfinished.
 #

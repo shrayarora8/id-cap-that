@@ -48,7 +48,7 @@ class Window:
     window_id: str
     segments: list[Segment]
     reason: str          # which rule closed it; invaluable when tuning
-    context: str = ""    # the previous window, for resolving "it" and "they"
+    context: str = ""    # recent conversation, for resolving "it" and "they"
     # True when the PREVIOUS window was cut off mid-sentence, so this one is
     # the rest of that thought rather than a new one. Without this, the tail
     # of a split sentence looks like three stray words and gets dropped.
@@ -79,6 +79,16 @@ class Chunker:
     last_activity: float = 0.0
     last_window_text: str = ""
     last_was_fragment: bool = False
+    # The last few windows, not just one.
+    #
+    # A single window of context is not enough to resolve a pronoun in real
+    # speech. Someone says "we're moving the team onto Notion", then "it costs
+    # eight dollars a seat", then "which is pretty reasonable", then "they
+    # raised at a ten billion valuation". By the fourth sentence the only
+    # context was "which is pretty reasonable" -- Notion was two windows back
+    # and completely invisible, so "they" could not be resolved and the claim
+    # was dropped. People refer back further than one sentence.
+    recent: list[str] = field(default_factory=list)
     _count: int = 0
 
     # --- inputs -------------------------------------------------------------
@@ -183,12 +193,14 @@ class Chunker:
             window_id=f"w{self._count}",
             segments=self.pending,
             reason=reason,
-            context=self.last_window_text,
+            context=" ".join(self.recent),
             continues_previous=self.last_was_fragment,
         )
         self.pending = []
         self.started_at = None
         self.last_window_text = window.text
+        self.recent.append(window.text)
+        del self.recent[: max(0, len(self.recent) - config.CONTEXT_WINDOWS)]
         # Only hard_silence and max_duration can cut a sentence in half, and
         # when they do the next window is the rest of that sentence.
         self.last_was_fragment = not window.text.endswith((".", "?", "!"))

@@ -317,3 +317,40 @@ def test_a_speaker_who_never_finishes_a_sentence_is_still_checked():
         chunker.add_segment(f"s{i}", "and then another thing")
     assert len(closed) == 1
     assert closed[0].reason == "max_sentences"
+
+
+def test_context_reaches_back_further_than_one_window():
+    """The bug this pins, seen twice on a phone.
+
+    "So we're moving the team onto Notion" / "it costs eight dollars a seat"
+    / "which is pretty reasonable" / "they raised at a ten billion
+    valuation". With one window of context, the fourth sentence saw only
+    "which is pretty reasonable" -- Notion was two windows back and
+    completely invisible, so "they" could not be resolved and the claim was
+    dropped with nothing on screen.
+
+    People refer back several sentences. The context has to as well.
+    """
+    closed = []
+    chunker = Chunker(on_window=closed.append)
+    for i, line in enumerate([
+        "So we are finally moving the whole team onto Notion.",
+        "It costs eight dollars per seat per month.",
+        "Which I think is pretty reasonable, personally.",
+        "They raised at a ten billion dollar valuation back in 2021.",
+    ], 1):
+        chunker.add_segment(f"s{i}", line)
+        chunker.utterance_end()
+
+    assert "Notion" in closed[-1].context, "the subject must still be reachable"
+
+
+def test_context_does_not_grow_without_limit():
+    """A whole conversation in every prompt is slower and costs more, and the
+    subject is never fifty sentences back."""
+    closed = []
+    chunker = Chunker(on_window=closed.append)
+    for i in range(20):
+        chunker.add_segment(f"s{i}", f"This is sentence number {i} of the conversation.")
+        chunker.utterance_end()
+    assert len(chunker.recent) <= config.CONTEXT_WINDOWS

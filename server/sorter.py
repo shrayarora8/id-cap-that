@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -105,9 +106,12 @@ valuation".
   NEVER substitute a description for a name. "The company", "the speaker's \
 team", "this product", "the organisation" are all WRONG -- they are unnamed \
 subjects wearing a disguise, they cannot be searched for, and the check comes \
-back empty every time. If the previous window names the company, use that name. \
-If you genuinely cannot find a name anywhere in the context, do not emit the \
-claim at all.
+back empty every time.
+  You are given the names mentioned recently. USE THEM. If someone says they \
+are moving onto Notion, then two sentences later says "they raised at a ten \
+billion valuation", the subject is Notion -- people refer back several \
+sentences and you must follow that. Only when no name in the conversation \
+could possibly be the subject should you leave the claim out.
   Make relative time explicit using today's date. Repair garbled names.
 - `kind`:
   - world_fact: about the outside world and checkable against sources
@@ -155,12 +159,43 @@ system stuttering.
 - Never judge whether a claim is true. Another system does that with evidence."""
 
 
+SUBJECT_RE = re.compile(r"\b[A-Z][A-Za-z0-9\u2019']{2,}(?:\s+[A-Z][A-Za-z0-9\u2019']+)*")
+
+# Words that start a sentence and look like names but never are.
+NOT_A_SUBJECT = {
+    "The", "This", "That", "These", "Those", "And", "But", "So", "Which",
+    "They", "It", "We", "You", "He", "She", "There", "Here", "What", "When",
+    "Why", "How", "Oh", "Yeah", "Anyway", "Honestly", "Sorry", "Okay", "Hey",
+    "Did", "Right", "Also", "Now", "Just", "Actually", "Well", "About",
+}
+
+
+def subjects_in(text: str) -> list[str]:
+    """Proper names mentioned recently, so a pronoun has something to bind to.
+
+    Handing the model the conversation and hoping it looks back is weaker
+    than telling it plainly who has been talked about. "They" following four
+    sentences of asides is exactly where it stops trying.
+    """
+    found = []
+    for match in SUBJECT_RE.finditer(text):
+        name = match.group().strip()
+        if name.split()[0] in NOT_A_SUBJECT:
+            continue
+        if name not in found:
+            found.append(name)
+    return found
+
+
 def build_prompt(window_text: str, context: str) -> str:
     today = dt.date.today().isoformat()
     previous = context or "(nothing said before this)"
+    names = subjects_in(context)
+    known = ", ".join(names) if names else "(none mentioned yet)"
     return (
         f"Today's date: {today}\n\n"
-        f"Previous window (context only, do not extract claims from it):\n{previous}\n\n"
+        f"Recent conversation (context only, do not extract claims from it):\n{previous}\n\n"
+        f"Names mentioned recently, for resolving pronouns: {known}\n\n"
         f"Current window (extract claims from this):\n{window_text}"
     )
 
