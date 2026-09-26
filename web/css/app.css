@@ -442,21 +442,7 @@
     color: var(--past); text-decoration: none;
   }
   .src:hover { background: color-mix(in oklab, var(--field) 74%, var(--live)); }
-  .src .host { color: var(--faint); }
-
-  /* Trust tier: neutral fill plus border style plus a glyph, so a tier can
-     never be mistaken for a verdict. Only tier 4 borrows alarm colour. */
-  .tier {
-    padding: 2px var(--sp-3);
-    border-radius: var(--r-sm);
-    border: 1px solid;
-    font-size: var(--fs-label); font-weight: var(--fw-semi);
-    letter-spacing: var(--ls-label); text-transform: uppercase;
-    white-space: nowrap;
-  }
-  .tier[data-t="1"] { color: var(--field); background: var(--live);  border-color: var(--live); border-style: solid; }
-  .tier[data-t="2"] { color: var(--past);  background: none;         border-color: var(--past); border-style: solid; }
-  .tier[data-t="4"] { color: var(--v-red); background: var(--alarm-fill); border-color: var(--v-red); border-style: dotted; }
+  .src .host { color: var(--past); }
 
   /* Confidence: a filled-bar count and nothing else. Never green/amber/red —
      a green "high confidence" beside a red ABSOLUTE CAP is the most confusing

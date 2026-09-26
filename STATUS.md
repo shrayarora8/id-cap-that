@@ -257,4 +257,8 @@ up when a late verdict lands on it, because verdicts arrive out of order.
   rather than counting upward forever. Backend's silent-drop change made this
   reachable; the floor is applied from the ticker too, since on a quiet screen
   no message arrives to trigger a redraw.
+- `frontend` tier badges removed entirely, on Shray's call. The card shows the
+  top three sources as plain clickable domains. `tier` still arrives and still
+  drives confidence; it is not drawn. Fourth application of "only say
+  something when there is something to say".
 

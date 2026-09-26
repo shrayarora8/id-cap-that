@@ -142,12 +142,25 @@ about it, not the result of looking. Drawn as a confident `UNKNOWN` badge it
 told the reader nothing while implying we had assessed the source and come up
 short — and five in a row made a perfectly sound verdict look shaky.
 
-Badges are drawn only for tiers **1, 2 and 4**, the ones that carry
-information. An ordinary source is just its domain. `elle.com` reads as a
-source; `UNKNOWN elle.com` reads as a warning nobody asked for.
+First pass: badges only for tiers 1, 2 and 4. **Second pass, and the final
+one: no tier badge at all.** `PRIMARY` on `notion.com` tells a reader what the
+domain already told them, and the classification chrome was crowding the
+evidence it was wrapped around. The card shows **the top three sources as
+plain clickable domains** and nothing else.
+
+`tier` still arrives and still drives `confidence`. It simply is not drawn.
+
+Three, not all of them: past three the list stops being evidence you read and
+starts being a list you scroll.
 
 This is the same rule as decision 7, applied to a value rather than a field:
-**only say something when there is something to say.**
+**only say something when there is something to say.** It has now removed
+`E1`, `kind · shape`, `UNKNOWN` and `PRIMARY` — four times, which is enough
+to call it the house rule rather than a series of fixes.
+
+What stays, and is not chrome: the verbatim quote, the `actually:` correction,
+and the sources themselves. The evidence is the point; the labels around it
+were not.
 
 ### 9. Nothing on screen may wait forever · agreed
 

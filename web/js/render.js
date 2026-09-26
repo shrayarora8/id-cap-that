@@ -467,13 +467,14 @@ function paintTally() {
 // ---------------------------------------------------------------------------
 // the evidence card
 
-// Tier 3 is the DEFAULT -- "on neither list" -- not a finding. Drawing it as a
-// confident UNKNOWN badge tells the reader nothing while implying we looked
-// into the source and came up short. Five of them in a row made a sound
-// verdict look shaky. Only the tiers that carry information get a badge; an
-// ordinary source is just its domain, which is what a person reads anyway.
-const TIER_GLYPH = { 1: "◆", 2: "◇", 4: "⚠" };
-const TIER_NAME = { 1: "primary", 2: "reputable", 4: "low trust" };
+// No tier badges at all. PRIMARY on notion.com tells a reader something the
+// domain already told them, and the classification chrome was crowding the
+// evidence it was wrapped around. `tier` still arrives and still drives
+// confidence -- it just isn't drawn.
+//
+// Three sources, not all of them: past three, the list stops being evidence
+// you read and starts being a list you scroll.
+const MAX_SOURCES = 3;
 
 function closeCard() {
   const c = document.querySelector(".card");
@@ -571,19 +572,13 @@ function showCard(claimId) {
     card.appendChild(q);
   }
 
-  for (const e of c.evidence || []) {
+  for (const e of (c.evidence || []).slice(0, MAX_SOURCES)) {
     const a = document.createElement("a");
     a.className = "src";
     a.href = e.url;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
-    if (TIER_NAME[e.tier]) {
-      const tier = document.createElement("span");
-      tier.className = "tier";
-      tier.dataset.t = String(e.tier);
-      tier.textContent = `${TIER_GLYPH[e.tier]} ${TIER_NAME[e.tier]}`;
-      a.appendChild(tier);
-    }
+    a.title = e.title || e.url;
     const name = document.createElement("span");
     name.className = "host";
     name.textContent = host(e.url);
@@ -607,7 +602,7 @@ function showCard(claimId) {
   // wants here is how long it took and how much was read.
   const meta = document.createElement("span");
   meta.className = "card-meta";
-  const n = (c.evidence || []).length;
+  const n = Math.min((c.evidence || []).length, MAX_SOURCES);
   meta.textContent = [
     c.tookMs ? `${(c.tookMs / 1000).toFixed(1)}s` : "",
     n ? `${n} source${n === 1 ? "" : "s"}` : "",
