@@ -509,7 +509,6 @@ function showCard(claimId) {
   if (c.verdict) card.style.setProperty("--vc", `var(--v-${slug})`);
 
   const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; } };
-  const byId = new Map((c.evidence || []).map((e) => [e.evidence_id, e]));
 
   const head = document.createElement("div");
   head.className = "card-head";
@@ -554,23 +553,14 @@ function showCard(claimId) {
     card.appendChild(p);
   }
 
-  // A citation has already been verified verbatim against its passage on the
-  // server, so it is shown as what is on the page, not as what a model said.
-  for (const cite of c.citations || []) {
-    const q = document.createElement("blockquote");
-    q.className = "quote";
-    q.textContent = `“${cite.quote}”`;
-    // The evidence_id is how a quote is joined to its source. That join is
-    // plumbing: it belongs in the code, not on the screen. The quote simply
-    // sits with the site it came from.
-    const src = byId.get(cite.evidence_id);
-    if (src) {
-      const cap = document.createElement("cite");
-      cap.textContent = host(src.url);
-      q.appendChild(cap);
-    }
-    card.appendChild(q);
-  }
+  // The raw excerpt is not shown. Passages are scraped from live pages, so a
+  // mid-table fragment or half a line of marketing copy reads badly often
+  // enough that it damages the card it is meant to support.
+  //
+  // Nothing about verification changes: quotes are still extracted, still
+  // checked character by character against the page, still dropped or
+  // recovered by the server's guard rails. We stop printing the raw text; the
+  // reason and the sources carry the card.
 
   for (const e of (c.evidence || []).slice(0, MAX_SOURCES)) {
     const a = document.createElement("a");

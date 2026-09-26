@@ -102,10 +102,17 @@ document.querySelectorAll(".eg").forEach((b) => {
 el("mute").addEventListener("click", (ev) => {
   const on = sound.toggle();
   ev.currentTarget.setAttribute("aria-pressed", String(on));
-  ev.currentTarget.textContent = on ? "Sound on" : "Sound off";
+  ev.currentTarget.title = on ? "Sound on" : "Sound off";
 });
 el("mute").setAttribute("aria-pressed", String(sound.enabled()));
-el("mute").textContent = sound.enabled() ? "Sound on" : "Sound off";
+el("mute").title = sound.enabled() ? "Sound on" : "Sound off";
+
+// Which build is actually running. The tier badges were reported as still on
+// screen hours after they were deleted, and there was no way to tell from the
+// page whether it was old code or a stale checkout. Now there is.
+export const BUILD = "c8a1cfb-dirty";
+document.documentElement.dataset.build = BUILD;
+console.info("i'd cap that — build", BUILD);
 
 render();
 

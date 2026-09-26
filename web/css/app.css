@@ -64,14 +64,20 @@
     padding-bottom: var(--sp-2);
   }
 
+  /* Two rows, not a wrapping flex line. The input used to take a whole row of
+     its own and then 22px of padding stacked on top of the home-indicator
+     inset, which on a phone left most of a fifth of the screen doing nothing.
+     max() rather than +: the inset already clears the home indicator, so
+     adding our own spacing on top of it doubles the gap. */
   .foot {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--sp-2) var(--sp-3);
     align-items: center;
-    gap: var(--sp-4);
-    flex-wrap: wrap;
-    padding: var(--sp-4) 0 calc(var(--sp-6) + var(--safe-bottom));
+    padding: var(--sp-3) 0 max(var(--sp-3), var(--safe-bottom));
     border-top: 1px solid var(--hair);
   }
+  .foot .status { grid-column: 1 / -1; }
 }
 
 @layer components {
@@ -257,7 +263,6 @@
 
   /* --- the foot: status, mic, typed claim -------------------------------- */
   .status {
-    flex: 1 1 12ch;
     min-width: 0;
     display: flex;
     align-items: center;
@@ -275,7 +280,7 @@
   .listen {
     display: flex; align-items: center; gap: var(--sp-3);
     min-height: var(--tap);
-    padding: 0 var(--sp-6);
+    padding: 0 var(--sp-5);
     border: 2px solid var(--hair);
     border-radius: var(--r-pill);
     background: none;
@@ -297,7 +302,7 @@
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
   .say {
-    flex: 1 1 100%;
+    min-width: 0;
     min-height: var(--tap);
     padding: 0 var(--sp-5);
     border: 1px solid var(--hair);
@@ -310,19 +315,18 @@
   .say::placeholder { color: var(--sunk); }
   .say:focus { outline: none; border-color: var(--past); }
 
+  /* Sound is off by default and rarely touched, so it sits in the top bar
+     rather than taking a third of the control row on a phone. */
   .mute {
-    min-height: var(--tap);
-    padding: 0 var(--sp-4);
-    border: 1px solid var(--hair);
+    width: 30px; height: 30px;
+    display: grid; place-items: center;
+    border: 1px solid transparent;
     border-radius: var(--r-pill);
     background: none;
-    font-size: var(--fs-label);
-    font-weight: var(--fw-semi);
-    letter-spacing: var(--ls-label);
-    text-transform: uppercase;
-    color: var(--faint);
+    font-size: 15px; line-height: 1;
+    color: var(--sunk);
   }
-  .mute[aria-pressed="true"] { color: var(--live); border-color: var(--past); }
+  .mute[aria-pressed="true"] { color: var(--live); border-color: var(--hair); }
 
   /* --- cold start: the screen a stranger lands on ------------------------ */
   .cold { display: grid; gap: var(--sp-5); align-content: end; padding-bottom: var(--sp-6); }
@@ -420,16 +424,6 @@
     font-size: var(--fs-body); font-weight: var(--fw-med); line-height: 1.5;
   }
   .fix span { color: var(--faint); font-weight: 400; }
-
-  .quote {
-    margin: 0 0 var(--sp-3);
-    padding: var(--sp-3) var(--sp-5);
-    border-left: 2px solid var(--hair);
-    border-radius: 0 var(--r-sm) var(--r-sm) 0;
-    font-size: var(--fs-body); line-height: 1.55; color: var(--past);
-  }
-  .quote cite { display: block; margin-top: var(--sp-2); font-style: normal;
-                font-family: var(--font-mono); font-size: var(--fs-label); color: var(--sunk); }
 
   .src {
     display: flex; align-items: center; gap: var(--sp-3);

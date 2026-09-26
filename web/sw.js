@@ -4,7 +4,7 @@
 // WebSocket or any API response: this app's entire value is live evidence,
 // and a stale verdict served from a cache would be worse than no verdict.
 
-const SHELL = "cap-shell-v2";
+const SHELL = "cap-shell-v3";
 const FILES = [
   "/",
   "/index.html",
@@ -47,8 +47,16 @@ self.addEventListener("fetch", (ev) => {
   // Network first, cache as the fallback. The other way round would serve a
   // stale app after a deploy, which during a hackathon is a nightmare you
   // cannot debug because your own browser is lying to you.
+  // `cache: "reload"` bypasses the browser's OWN http cache, not just ours.
+  // The static server sends no cache-control, so browsers fall back to
+  // heuristic freshness and happily serve yesterday's app.js -- which is
+  // exactly what happened: a fix was deleted, pushed and still on screen
+  // hours later, on a page whose own service worker was network-first.
+  // Network-first is worthless if the network layer is lying to you.
+  const fresh = new Request(ev.request, { cache: "reload" });
+
   ev.respondWith(
-    fetch(ev.request)
+    fetch(fresh)
       .then((res) => {
         const copy = res.clone();
         caches.open(SHELL).then((c) => c.put(ev.request, copy));

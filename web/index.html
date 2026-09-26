@@ -30,6 +30,7 @@
       <span class="tly" data-k="nocap" data-zero="1"><b id="t-nocap">0</b> no cap</span>
     </span>
     <span class="budget" id="budget"></span>
+    <button id="mute" class="mute" type="button" aria-pressed="false" title="Sound off" aria-label="Sound on verdicts">♪</button>
   </header>
 
   <!-- The transcript is the product. Everything else is furniture. -->
@@ -51,10 +52,9 @@
 
   <footer class="foot">
     <span class="status" id="status" data-busy="0"><span class="rotor" id="rotor">◌</span><span id="stxt">not connected</span></span>
-    <button id="mute" class="mute" type="button" aria-pressed="false" title="Sound on verdicts">Sound off</button>
-    <button id="listen" class="listen" type="button" aria-pressed="false"><span class="dot"></span>Listen</button>
     <label for="say" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)">Type a claim to check</label>
-    <input id="say" class="say" type="text" placeholder="or type a claim and press enter" autocomplete="off" autocapitalize="sentences" enterkeyhint="send">
+    <input id="say" class="say" type="text" placeholder="type a claim instead" autocomplete="off" autocapitalize="sentences" enterkeyhint="send">
+    <button id="listen" class="listen" type="button" aria-pressed="false"><span class="dot"></span>Listen</button>
   </footer>
 
 </div>
