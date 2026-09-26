@@ -194,6 +194,16 @@
   }
   /* A 44px tap target without touching the line height. */
   .mark::after { content: ""; position: absolute; inset: -10px -4px; }
+
+  /* The global focus ring draws a large rounded box around a whole clause,
+     which on a 34px line is the loudest thing on screen. Tight, thin, and in
+     the verdict's own colour instead. */
+  .mark:focus-visible {
+    outline: 1.5px solid currentColor;
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+  .mark[data-v]:focus-visible { outline-color: var(--vc); }
   .mark .txt { position: relative; }
 
   /* Checking: a marker dragged over the words, over and over. */

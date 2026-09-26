@@ -331,8 +331,10 @@ function paintClaims() {
 
     // Reuse the existing tag when only its text changed, so the counter can
     // tick without replaying the entrance animation ten times a second.
+    const host = endsLine(last) ? last : (last.closest(".line") || last);
+
     let tag = lyr().querySelector(`.tag[data-claim-id="${CSS.escape(c.id)}"]`);
-    if (tag && (tag.dataset.kind !== kind || tag.parentElement !== last)) {
+    if (tag && (tag.dataset.kind !== kind || tag.parentElement !== host)) {
       tag.remove();
       tag = null;
     }
@@ -346,12 +348,32 @@ function paintClaims() {
       tag.dataset.kind = kind;
       tag.dataset.claimId = c.id;
       tag.setAttribute("aria-hidden", "true");
-      last.appendChild(tag);
+      host.appendChild(tag);
     }
     tag.textContent = label;
   }
 
   if (working && !ticker) ticker = setInterval(tick, 100);
+}
+
+/** Does this claim finish the line it is on?
+ *
+ *  When it does, the label sits right after the words and reads as an
+ *  annotation. When it does not, the label lands mid-sentence -- "It costs $8
+ *  per seat per month, ABSOLUTE CAP which I think is reasonable" -- and the
+ *  reader has to step over it. In that case the label goes to the end of the
+ *  line instead. The coloured, struck words still say which claim it is.
+ */
+function endsLine(mark) {
+  const line = mark.closest(".line");
+  if (!line) return true;
+  for (let i = line.childNodes.length - 1; i >= 0; i -= 1) {
+    const n = line.childNodes[i];
+    if (n.nodeType === Node.TEXT_NODE && !n.textContent.trim()) continue;
+    if (n.nodeType === Node.ELEMENT_NODE && n.classList.contains("tag")) continue;
+    return n === mark || n.contains(mark);
+  }
+  return true;
 }
 
 function ariaFor(c) {
@@ -513,10 +535,9 @@ function showCard(claimId) {
   const head = document.createElement("div");
   head.className = "card-head";
   head.innerHTML =
-    `<span class="card-v"></span><span class="card-ms"></span>` +
+    `<span class="card-v"></span>` +
     `<button class="card-x" type="button" aria-label="Close">✕</button>`;
   head.querySelector(".card-v").textContent = c.sticker || (c.checkable === false ? "not checkable" : "checking…");
-  head.querySelector(".card-ms").textContent = c.tookMs ? `${(c.tookMs / 1000).toFixed(1)}s` : "";
   head.querySelector(".card-x").onclick = () => { closeCard(); paintClaims(); };
   card.appendChild(head);
 
@@ -594,7 +615,7 @@ function showCard(claimId) {
   meta.className = "card-meta";
   const n = Math.min((c.evidence || []).length, MAX_SOURCES);
   meta.textContent = [
-    c.tookMs ? `${(c.tookMs / 1000).toFixed(1)}s` : "",
+    c.tookMs >= 100 ? `${(c.tookMs / 1000).toFixed(1)}s` : "",
     n ? `${n} source${n === 1 ? "" : "s"}` : "",
   ].filter(Boolean).join(" · ");
   foot.appendChild(meta);
