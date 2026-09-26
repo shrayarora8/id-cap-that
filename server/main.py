@@ -384,18 +384,18 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
         send_evidence(session, claim_id, evidence, "snippets")
 
         status("judging", f"weighing {len(evidence)} snippet(s)")
-        judgement, notes = await judge_claim(claim.normalized, evidence, claim.shape)
+        judgement, checks = await judge_claim(claim.normalized, evidence, claim.shape)
         leg = mark("judge", leg)
 
         deep_enough = not judgement.needs_full_pages or not hits
         send_verdict(
-            session, claim_id, judgement,
+            session, claim_id, judgement, checks=checks,
             stage="confirmed" if deep_enough else "provisional",
             depth="snippets", started=started, timings=timings,
         )
 
         if deep_enough:
-            log_result(claim_id, judgement, notes, timings)
+            log_result(claim_id, judgement, checks, timings)
             return
 
         # The judge asked to read further. This is the only path that costs
@@ -412,24 +412,24 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
             # provisional forever: a claim that never reaches a settled state
             # is a claim whose elapsed counter ticks upward with no end, and
             # that counter is the honesty of the whole product.
-            notes.append("could not read the pages, keeping the snippet verdict")
+            checks.append(messages.check("verdict_unsupported", "the pages would not load, so the snippet verdict stands"))
             send_verdict(
-                session, claim_id, judgement, stage="confirmed", depth="snippets",
+                session, claim_id, judgement, checks=checks, stage="confirmed", depth="snippets",
                 started=started, timings=timings,
             )
-            log_result(claim_id, judgement, notes, timings)
+            log_result(claim_id, judgement, checks, timings)
             return
 
         send_evidence(session, claim_id, evidence, "pages")
         status("judging", f"weighing {len(evidence)} passage(s)")
-        judgement, notes = await judge_claim(claim.normalized, evidence, claim.shape)
+        judgement, checks = await judge_claim(claim.normalized, evidence, claim.shape)
         mark("rejudge", leg)
 
         send_verdict(
-            session, claim_id, judgement, stage="confirmed", depth="pages",
+            session, claim_id, judgement, checks=checks, stage="confirmed", depth="pages",
             started=started, timings=timings,
         )
-        log_result(claim_id, judgement, notes, timings)
+        log_result(claim_id, judgement, checks, timings)
 
     except BudgetExceeded as exc:
         session.send(messages.claim_error(claim_id, "budget", str(exc)))
@@ -453,7 +453,7 @@ def send_evidence(session: Session, claim_id: str, evidence, depth: str) -> None
 
 def send_verdict(
     session: Session, claim_id: str, judgement, stage: str, depth: str,
-    started: float, timings: dict,
+    started: float, timings: dict, checks: list | None = None,
 ) -> None:
     session.send(
         messages.claim_verdict(
@@ -463,6 +463,7 @@ def send_verdict(
             summary=judgement.summary,
             stage=stage,
             citations=[messages.citation(c.evidence_id, c.quote) for c in judgement.citations],
+            checks=checks or [],
             depth=depth,
             took_ms=int((time.monotonic() - started) * 1000),
             timings=timings,
@@ -472,12 +473,12 @@ def send_verdict(
     )
 
 
-def log_result(claim_id: str, judgement, notes: list[str], timings: dict) -> None:
+def log_result(claim_id: str, judgement, checks: list[dict], timings: dict) -> None:
     log.info(
         "claim %s -> %s | %s | %s | %d firecrawl credits so far",
         claim_id, judgement.verdict,
         " ".join(f"{k}={v}ms" for k, v in timings.items()),
-        "; ".join(notes) or "clean",
+        "; ".join(c["code"] for c in checks) or "clean",
         credits_used(),
     )
 

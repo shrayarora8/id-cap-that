@@ -445,18 +445,39 @@ def confidence_from(tiers: list[int]) -> str:
 
 def apply_guard_rails(
     judgement: Judgement, evidence: list[Evidence], claim_text: str = ""
-) -> tuple[Judgement, list[str]]:
+) -> tuple[Judgement, list[dict]]:
     """Downgrade anything the evidence does not actually support.
 
-    Returns the judgement and a list of what changed, so the reason is visible
-    in the logs rather than silently applied.
+    Returns the judgement and a list of checks: one entry per rail that
+    fired, each with a machine-readable code and a human note. They are sent
+    to the page as well as logged, because the strongest reason to trust any
+    of this -- that a model DID invent a quote and our code caught it -- was
+    otherwise invisible to anyone looking at the screen.
     """
-    notes: list[str] = []
+    from . import messages
+
+    checks: list[dict] = []
+
+    def note(code: str, text: str) -> None:
+        checks.append(messages.check(code, text))
+
     good, bad = verify_citations(judgement, evidence)
 
     if bad:
-        notes.append(f"{len(bad)} quote(s) not found in the passages, dropped")
+        note("quote_dropped",
+             f"{len(bad)} quote(s) were not in the passages and were dropped")
         log.warning("judge invented quotes: %s", [c.quote[:60] for c in bad])
+
+    # A citation that came back shorter than the model wrote it was trimmed
+    # to the part genuinely on the page.
+    original = {c.evidence_id: c.quote for c in judgement.citations}
+    for citation in good:
+        was = original.get(citation.evidence_id)
+        if was and len(citation.quote) < len(was):
+            note("quote_trimmed",
+                 "the quote was partly real and was cut down to the part on the page")
+            break
+
     judgement.citations = good
 
     # Last chance before throwing away a correct verdict: the model often gets
@@ -469,12 +490,14 @@ def apply_guard_rails(
             judgement.correction or judgement.summary, evidence
         )
         if rescued:
-            notes.append("quote rewritten by the model, recovered from the passage")
+            note("quote_recovered",
+                 "the model retyped its quote, so the real sentence was found in the passage")
             good = [rescued]
             judgement.citations = good
 
     if judgement.verdict in NEEDS_CITATION and not good:
-        notes.append("no verifiable quote, so the verdict cannot stand")
+        note("verdict_unsupported",
+             "nothing citable survived, so the verdict could not stand")
         judgement.verdict = "INSUFFICIENT_EVIDENCE"
 
     # A real quote from a page about something else is not evidence.
@@ -484,7 +507,7 @@ def apply_guard_rails(
     if claim_text and judgement.verdict in NEEDS_CITATION and not evidence_is_about_the_claim(
         claim_text, judgement.citations, evidence
     ):
-        notes.append("the cited passage is not about this claim")
+        note("evidence_off_topic", "the cited passage was not about this claim")
         judgement.verdict = "INSUFFICIENT_EVIDENCE"
         judgement.citations = []
 
@@ -492,23 +515,37 @@ def apply_guard_rails(
     if claim_text and judgement.verdict in NEEDS_CITATION and not evidence_names_everyone_in_the_claim(
         claim_text, judgement.citations, evidence
     ):
-        missing = sorted(named_entities(claim_text))
-        notes.append(f"no passage mentions all of {missing}")
+        missing = ", ".join(sorted(named_entities(claim_text)))
+        note("entities_missing", f"no passage mentioned all of: {missing}")
         judgement.verdict = "INSUFFICIENT_EVIDENCE"
         judgement.citations = []
 
     comparison = compare_values(judgement.claimed_value, judgement.evidence_value)
     if comparison == "mismatch" and judgement.verdict in {"SUPPORTED", "PARTIALLY_SUPPORTED"}:
-        notes.append(
-            f"{judgement.claimed_value!r} vs {judgement.evidence_value!r} is a real "
-            "difference, not a rounding one"
-        )
+        note("numbers_mismatch",
+             f"{judgement.claimed_value} against {judgement.evidence_value} is a real "
+             "difference, not rounding")
         judgement.verdict = "CONTRADICTED"
+    elif comparison == "match":
+        note("numbers_match",
+             f"{judgement.claimed_value} and {judgement.evidence_value} agree")
     # Deliberately one-directional. A mismatch is hard evidence that the claim
     # and the sources disagree. A match proves nothing on its own: "Verstappen
     # won in 2025" against "Norris won in 2025" matches on the year while
     # being flatly wrong about the person. Upgrading on a match turned a
     # correct ABSOLUTE CAP into NO CAP, so we never upgrade.
+
+    # The quiet case, and the one a viewer sees most: nothing was wrong. A
+    # field that only appears when something went wrong cannot say "we
+    # checked and it held up", which is what makes the loud case mean
+    # anything.
+    if judgement.citations and not any(
+        c["code"] in ("quote_dropped", "quote_trimmed", "quote_recovered") for c in checks
+    ):
+        checks.insert(0, messages.check(
+            "quote_verified",
+            "every quote was found word for word in the passage it cites",
+        ))
 
     cited_tiers = [
         item.tier for item in evidence
@@ -516,12 +553,12 @@ def apply_guard_rails(
     ]
     judgement.confidence = confidence_from(cited_tiers)
 
-    return judgement, notes
+    return judgement, checks
 
 
 async def judge_claim(
     claim: str, evidence: list[Evidence], shape: str = "other"
-) -> tuple[Judgement, list[str]]:
+) -> tuple[Judgement, list[dict]]:
     if not evidence:
         return (
             Judgement(
@@ -529,7 +566,7 @@ async def judge_claim(
                 summary="No sources were found for this one.",
                 needs_full_pages=False,
             ),
-            ["no evidence retrieved"],
+            [],
         )
 
     judgement = await llm.ask(
@@ -539,6 +576,10 @@ async def judge_claim(
         schema=Judgement,
         max_tokens=700,
     )
-    judgement, notes = apply_guard_rails(judgement, evidence, claim)
-    log.info("judge: %s (%s)", judgement.verdict, "; ".join(notes) or "clean")
-    return judgement, notes
+    judgement, checks = apply_guard_rails(judgement, evidence, claim)
+    log.info(
+        "judge: %s (%s)",
+        judgement.verdict,
+        "; ".join(c["code"] for c in checks) or "clean",
+    )
+    return judgement, checks

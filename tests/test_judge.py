@@ -142,7 +142,7 @@ def test_a_number_mismatch_forces_a_contradiction():
     )
     result, notes = apply_guard_rails(j, evidence, "Notion Business costs five hundred dollars per seat per month.")
     assert result.verdict == "CONTRADICTED"
-    assert any("real" in n for n in notes)
+    assert any(c["code"] == "numbers_mismatch" for c in notes)
 
 
 def test_the_comparison_never_upgrades_a_verdict():
@@ -168,7 +168,7 @@ def test_a_verdict_with_no_verifiable_quote_is_downgraded():
     j = judgement(verdict="SUPPORTED", citations=[Citation(evidence_id="E1", quote="totally invented")])
     result, notes = apply_guard_rails(j, evidence)
     assert result.verdict == "INSUFFICIENT_EVIDENCE"
-    assert any("cannot stand" in n for n in notes)
+    assert any(c["code"] == "verdict_unsupported" for c in notes)
 
 
 def test_insufficient_evidence_needs_no_quote():
@@ -189,7 +189,7 @@ def test_a_paraphrased_quote_is_recovered_from_the_passage():
     result, notes = apply_guard_rails(j, evidence, "The Notion Business plan costs 500 dollars per seat each month.")
     assert result.verdict == "CONTRADICTED"
     assert result.citations and "20 dollars per seat" in result.citations[0].quote
-    assert any("recovered" in n for n in notes)
+    assert any(c["code"] == "quote_recovered" for c in notes)
 
 
 def test_the_numeric_rescue_refuses_to_invent():
@@ -262,7 +262,7 @@ def test_a_real_quote_from_an_unrelated_page_is_not_evidence():
     )
     result, notes = apply_guard_rails(j, evidence, "The process took fifty seconds.")
     assert result.verdict == "INSUFFICIENT_EVIDENCE"
-    assert any("not about this claim" in n for n in notes)
+    assert any(c["code"] == "evidence_off_topic" for c in notes)
     assert result.citations == []
 
 
@@ -283,3 +283,54 @@ def test_a_claim_with_almost_no_distinctive_words_cannot_be_settled():
     j = judgement(verdict="SUPPORTED", citations=[Citation(evidence_id="E1", quote="Some passage that happens to contain")])
     result, _ = apply_guard_rails(j, evidence, "It was.")
     assert result.verdict == "INSUFFICIENT_EVIDENCE"
+
+
+# --- what our own code did, sent to the page --------------------------------
+
+
+def test_a_clean_verdict_still_reports_that_it_was_checked():
+    """The quiet case, and the one a viewer sees most. A field that only
+    appears when something went wrong cannot say "we checked and it held
+    up" -- which is what makes the loud case mean anything."""
+    evidence = [ev("E1", "Taylor Swift has won 14 Grammy Awards including four Album of the Year wins.")]
+    j = judgement(
+        verdict="CONTRADICTED",
+        citations=[Citation(evidence_id="E1", quote="Taylor Swift has won 14 Grammy Awards")],
+    )
+    _, checks = apply_guard_rails(j, evidence, "Taylor Swift has won 28 Grammy Awards.")
+    assert any(c["code"] == "quote_verified" for c in checks)
+
+
+def test_an_invented_quote_is_reported_as_dropped():
+    evidence = [ev("E1", "A passage that says nothing whatsoever about the subject at hand.")]
+    j = judgement(verdict="SUPPORTED", citations=[Citation(evidence_id="E1", quote="entirely made up")])
+    _, checks = apply_guard_rails(j, evidence, "Some claim about a thing.")
+    codes = [c["code"] for c in checks]
+    assert "quote_dropped" in codes
+    assert "quote_verified" not in codes, "a dropped quote is not a clean check"
+
+
+def test_every_check_code_is_in_the_contract():
+    """The page styles on these codes, so an unknown one renders as nothing."""
+    from server import messages
+
+    evidence = [ev("E1", "Notion Business costs twenty dollars per seat per month, billed annually.")]
+    j = judgement(
+        verdict="SUPPORTED",
+        claimed_value="500 dollars",
+        evidence_value="20 dollars",
+        citations=[Citation(evidence_id="E1", quote="Notion Business costs twenty dollars per seat per month")],
+    )
+    _, checks = apply_guard_rails(j, evidence, "Notion Business costs five hundred dollars per seat.")
+    assert checks
+    for c in checks:
+        assert c["code"] in messages.CHECK_CODES, f"{c['code']} is not in the contract"
+        assert c["note"], "every check needs a human sentence"
+
+
+def test_checks_are_plain_dicts_the_page_can_render():
+    evidence = [ev("E1", "Usain Bolt set the world record of 9.58 seconds in Berlin in 2009.")]
+    j = judgement(citations=[Citation(evidence_id="E1", quote="Usain Bolt set the world record of 9.58 seconds")])
+    _, checks = apply_guard_rails(j, evidence, "Usain Bolt ran 9.58 seconds.")
+    for c in checks:
+        assert set(c) == {"code", "note"}

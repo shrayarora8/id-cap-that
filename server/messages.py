@@ -228,6 +228,34 @@ def citation(evidence_id: str, quote: str) -> dict[str, Any]:
 EVIDENCE_TEXT_CHARS = 400
 
 
+# What our own code did to the model's answer, one entry per rail that fired.
+#
+# This exists because the product was hiding its best argument. The judge
+# invents a quote roughly once in four claims; the code catches it and goes
+# and finds the real sentence. A viewer saw no difference between a quote
+# taken on the model's word and one checked against the page, so the single
+# strongest reason to trust any of this was invisible.
+#
+# `code` is what the page styles on. `note` is the human sentence. The page
+# must never pattern-match the note: the wording changes, the codes do not.
+CHECK_CODES = (
+    "quote_verified",      # found word for word in the passage, nothing to fix
+    "quote_trimmed",       # partly real; cut down to the part genuinely there
+    "quote_recovered",     # the model retyped it; we found the real sentence
+    "quote_dropped",       # not in the passage at all, thrown away
+    "verdict_unsupported", # downgraded: nothing citable survived
+    "evidence_off_topic",  # the passage was not about this claim
+    "entities_missing",    # a named subject of the claim is absent from it
+    "numbers_mismatch",    # arithmetic disagreed, so the verdict was forced
+    "numbers_match",       # arithmetic agreed (reported, never an upgrade)
+)
+
+
+def check(code: str, note: str) -> dict[str, Any]:
+    """One guard rail that fired, and what it did."""
+    return {"code": code, "note": note}
+
+
 def claim_evidence(claim_id: str, items: list[dict[str, Any]], depth: str) -> dict[str, Any]:
     """The passages the judge is about to read, shown before the verdict so
     the user watches it work rather than waiting at a spinner.
@@ -245,6 +273,7 @@ def claim_verdict(
     summary: str,
     stage: str = "confirmed",
     citations: list[dict[str, Any]] | None = None,
+    checks: list[dict[str, Any]] | None = None,
     depth: str = "snippets",
     took_ms: int | None = None,
     timings: dict[str, int] | None = None,
@@ -261,6 +290,11 @@ def claim_verdict(
 
     `timings` is the per-stage breakdown, which is what scripts/latency.py
     turns into a waterfall. Latency is the feature, so it is measured.
+
+    `checks` is what our own code did to the model's answer: every guard rail
+    that fired, with a machine-readable code. It is the difference between
+    "an AI said so" and "here is the sentence on the page that says so", and
+    without it that difference is invisible to anyone looking at the screen.
     """
     return event(
         "claim.verdict",
@@ -270,6 +304,7 @@ def claim_verdict(
         summary=summary,
         stage=stage,
         citations=citations or [],
+        checks=checks or [],
         depth=depth,
         took_ms=took_ms,
         timings=timings or {},
