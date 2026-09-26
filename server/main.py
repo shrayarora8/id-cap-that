@@ -38,6 +38,13 @@ for noisy in ("httpx", "httpcore", "websockets", "anthropic", "multipart"):
 
 log = logging.getLogger("cap")
 
+# A normalised claim that still begins with a pronoun was never given a
+# subject, so there is nothing specific to search for.
+UNRESOLVED_SUBJECT = re.compile(
+    r"^(he|she|it|they|we|you|his|her|their|its|this|that|these|those)\b",
+    re.IGNORECASE,
+)
+
 # How often the chunker checks its two time-based rules. Nothing else would
 # ever fire them, because they are about time passing rather than about
 # something arriving.
@@ -254,10 +261,18 @@ async def check_window(session: Session, window: Window) -> None:
         return
 
     for claim in claims:
-        # An opinion, an aside or a prediction in ordinary conversation is not
-        # worth marking at all. Only buzzwords earn WORD SALAD, because a
-        # sticker that lands on everything means nothing.
-        if not claim.checkable and claim.kind != "fluff":
+        # A claim whose subject is still a pronoun was never decontextualised,
+        # and it cannot be searched for: "She dated Tom Holland" matches an
+        # article about anyone who dated Tom Holland. That is how a Zendaya
+        # page came back NO CAP for a claim about Taylor Swift.
+        if claim.checkable and UNRESOLVED_SUBJECT.match(claim.normalized.strip()):
+            log.info("claim has no named subject, not checking: %r", claim.normalized[:60])
+            continue
+
+        # An opinion or an aside in ordinary conversation is not worth
+        # marking. Buzzwords and unfalsifiable superlatives are, because
+        # "the best database in the world" sounds like a fact and is not one.
+        if not claim.checkable and claim.kind not in ("fluff", "vague"):
             log.info("not surfacing %s claim: %r", claim.kind, claim.quote[:50])
             continue
 

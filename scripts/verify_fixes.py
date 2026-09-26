@@ -9,6 +9,8 @@ CASES = [
     ("Taking too long.",                            "NOTHING",      "was WORD SALAD"),
     ("This product will revolutionize the market through cross functional synergy.", "WORD SALAD", "must still fire"),
     ("Usain Bolt ran the one hundred metres in 9.58 seconds.", "NO CAP", "regression check"),
+    ("Snowflake is the best database in the world.",  "WORD SALAD", "was ignored entirely"),
+    ("Taylor Swift dated Tom Holland.",               "any",        "was NO CAP off a Zendaya page"),
 ]
 
 async def main():

@@ -97,14 +97,22 @@ For each claim you find:
 character-for-character against the transcript to underline it on screen, so it \
 must appear in the window text exactly as written. Copy the smallest span that \
 contains the claim.
-- `normalized`: rewrite so it stands alone. Resolve pronouns using the previous \
-window. Make relative time explicit using today's date. Repair garbled names.
+- `normalized`: rewrite so it stands alone. THE SUBJECT MUST BE NAMED. Resolve \
+every pronoun using the previous window: "she dated him" becomes "Taylor Swift \
+dated Tom Holland". If you cannot work out who or what the subject is from the \
+context given, do not emit the claim at all -- an unnamed subject cannot be \
+searched for, and evidence about the wrong person will look like it settles it. \
+Make relative time explicit using today's date. Repair garbled names.
 - `kind`:
   - world_fact: about the outside world and checkable against sources
   - opinion: a value judgement ("our UI is beautiful")
   - prediction: about the future ("we'll 10x next year")
   - fluff: corporate buzzwords with no testable content
-  - vague: too imprecise to check ("customers love us")
+  - vague: an unfalsifiable superlative or marketing claim. "The best database \
+in the world", "the most powerful platform", "world-class support". These sound \
+like facts and cannot be settled by any evidence, which is exactly worth \
+pointing out. Note that "the FASTEST database" is different -- speed is \
+measurable, so that is a world_fact with shape comparison.
 - `hedge`: stated, asked (a question), or hedged ("I think", "maybe")
 - `checkable`: true only for world_fact. Questions and hedged claims about facts \
 are still checkable; uncertainty about who said it does not make the fact unknowable.

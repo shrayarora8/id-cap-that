@@ -300,6 +300,47 @@ def verify_citations(
 # in the safe direction: the verdict drops to INSUFFICIENT_EVIDENCE.
 MIN_SUBJECT_OVERLAP = 0.34
 
+# Multi-word proper nouns: "Taylor Swift", "Inter Miami", "Tom Holland".
+NAMED_ENTITY = re.compile(r"\b[A-Z][a-z0-9\u2019']+(?:\s+[A-Z][a-z0-9\u2019']+)+")
+
+
+def named_entities(text: str) -> set[str]:
+    """The multi-word proper nouns a claim is about."""
+    return {m.group().strip().lower() for m in NAMED_ENTITY.finditer(text)}
+
+
+def evidence_names_everyone_in_the_claim(
+    claim: str, citations: list[Citation], evidence: list[Evidence]
+) -> bool:
+    """Does a cited passage mention EVERY named person or thing in the claim?
+
+    The bug this exists for: the claim was "Taylor Swift dated Tom Holland".
+    The search found articles about Zendaya dating Tom Holland. Those passages
+    genuinely discuss Tom Holland, so the word-overlap check passed -- half
+    the claim's vocabulary was present. Nothing ever asked whether Taylor
+    Swift appeared anywhere, and the verdict came back NO CAP for a claim
+    about a relationship the sources never mention.
+
+    Overlap is not enough when a claim is about a RELATIONSHIP between two
+    named things. Both ends have to be on the page.
+    """
+    wanted = named_entities(claim)
+    if len(wanted) < 2:
+        # One name or none: the overlap check already covers this, and being
+        # stricter would reject a table row that answers without repeating
+        # the subject.
+        return True
+
+    by_id = {item.evidence_id: item for item in evidence}
+    for citation in citations:
+        item = by_id.get(citation.evidence_id)
+        if not item:
+            continue
+        haystack = f"{item.title} {item.text}".lower()
+        if all(name in haystack for name in wanted):
+            return True
+    return False
+
 
 def evidence_is_about_the_claim(claim: str, citations: list[Citation], evidence: list[Evidence]) -> bool:
     """Does any cited passage actually share the claim's subject?"""
@@ -444,6 +485,15 @@ def apply_guard_rails(
         claim_text, judgement.citations, evidence
     ):
         notes.append("the cited passage is not about this claim")
+        judgement.verdict = "INSUFFICIENT_EVIDENCE"
+        judgement.citations = []
+
+    # A claim about two named things needs both of them on the page.
+    if claim_text and judgement.verdict in NEEDS_CITATION and not evidence_names_everyone_in_the_claim(
+        claim_text, judgement.citations, evidence
+    ):
+        missing = sorted(named_entities(claim_text))
+        notes.append(f"no passage mentions all of {missing}")
         judgement.verdict = "INSUFFICIENT_EVIDENCE"
         judgement.citations = []
 
