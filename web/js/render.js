@@ -201,10 +201,19 @@ function buildLine(line) {
       p.appendChild(mark);
     };
 
+    // Claims can overlap: two claims found in one sentence, or the same claim
+    // emitted twice. Slicing from each claim's own start ignores how far the
+    // line has already been drawn, so the overlapping characters get written
+    // out a second time -- the text appears twice on screen, with a verdict
+    // label on each copy. Clip every claim to what is still undrawn. A claim
+    // entirely inside one already drawn contributes nothing, which is what
+    // makes a duplicate collapse into a single mark rather than two.
     for (const h of hits) {
-      if (h.s > at) emit(chunk.text.slice(at, h.s), null);
-      emit(chunk.text.slice(h.s, h.e), h.id);
-      at = Math.max(at, h.e);
+      const from = Math.max(h.s, at);
+      const to = Math.max(h.e, from);
+      if (from > at) emit(chunk.text.slice(at, from), null);
+      if (to > from) emit(chunk.text.slice(from, to), h.id);
+      at = Math.max(at, to);
     }
     emit(chunk.text.slice(at), null);
 
