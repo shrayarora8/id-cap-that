@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config, messages
+from .chunker import Chunker, Window
 from .session import Session
 from .transcribe import DeepgramRelay
 
@@ -28,6 +29,11 @@ for noisy in ("httpx", "httpcore", "websockets", "anthropic", "multipart"):
     logging.getLogger(noisy).setLevel(config.LIBRARY_LOG_LEVEL)
 
 log = logging.getLogger("cap")
+
+# How often the chunker checks its two time-based rules. Nothing else would
+# ever fire them, because they are about time passing rather than about
+# something arriving.
+TICK_SECONDS = 0.2
 
 WEB_DIR = Path(__file__).parent.parent / "web"
 
@@ -67,6 +73,11 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     session = Session(ws, pool=_pool_for(ws))
     sender = asyncio.create_task(session.sender_loop())
 
+    # Every session gets a chunker. It groups finished phrases into windows
+    # and hands each closed window to on_window_closed below.
+    session.chunker = Chunker(on_window=lambda w: on_window_closed(session, w))
+    ticker = asyncio.create_task(tick_loop(session))
+
     log.info("session %s open (%s pool)", session.session_id, session.pool)
 
     session.send(
@@ -99,12 +110,24 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     finally:
         # Cancelling is not enough on its own: awaiting the cancelled task is
         # what stops asyncio logging "Task exception was never retrieved".
-        sender.cancel()
-        with suppress(asyncio.CancelledError):
-            await sender
+        for task in (sender, ticker):
+            task.cancel()
+            # Cancelling is not enough on its own: awaiting the cancelled task
+            # is what stops asyncio logging "Task exception was never
+            # retrieved" on every disconnect.
+            with suppress(asyncio.CancelledError):
+                await task
         await stop_listening(session)
         await session.shutdown()
         log.info("session %s closed", session.session_id)
+
+
+async def tick_loop(session: Session) -> None:
+    """Nudges the chunker so its silence and duration rules can fire."""
+    while True:
+        await asyncio.sleep(TICK_SECONDS)
+        if session.chunker is not None:
+            session.chunker.tick()
 
 
 # --- messages from the page -------------------------------------------------
@@ -170,6 +193,17 @@ def emit_final(session: Session, text: str) -> None:
     session.send(messages.transcript_final(segment_id, text))
     if session.chunker is not None:
         session.chunker.add_segment(segment_id, text)
+
+
+def on_window_closed(session: Session, window: Window) -> None:
+    """A window of speech is complete. For now, show it; from stage 5 this is
+    also where we decide what it costs to check."""
+    log.info("window %s closed by %s: %r", window.window_id, window.reason, window.text)
+    session.send(
+        messages.window_ready(
+            window.window_id, window.segment_ids, window.text, window.reason
+        )
+    )
 
 
 # --- the microphone ---------------------------------------------------------

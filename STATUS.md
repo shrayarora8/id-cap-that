@@ -5,7 +5,7 @@ sync without talking to each other constantly. **Every session updates this
 file in the same commit as the work it describes.** If it is not here, the
 other session does not know about it.
 
-Last updated: stage 2 complete, stage 3 backend done.
+Last updated: stage 4 chunker done. Stage 3 needs a phone test.
 
 ---
 
@@ -42,7 +42,7 @@ sides is not a contract.
 | 1 | Page shell, design system applied, PWA | frontend | not started |
 | 2 | WebSocket, session, JS modules, typed-claim box, replay recorder | backend | **done** |
 | 3 | AudioWorklet PCM to Deepgram, HTTPS tunnel | backend | **server + browser written, needs a phone test** |
-| 4 | Chunker, pre-filter, spans (pure logic, tested) | backend | not started |
+| 4 | Chunker, pre-filter, spans (pure logic, tested) | backend | **chunker done (18 tests); pre-filter and spans next** |
 | 5 | LLM cache, sorter, claims underline live | backend | not started |
 | 6 | Snippet-first retrieval, judge, guard rails | backend | not started |
 | 7 | Escalation ladder, Moss deep path, budget pools | backend | not started |
@@ -51,6 +51,23 @@ sides is not a contract.
 ---
 
 ## Done, and how to verify it
+
+### Stage 4 — the chunker
+
+```bash
+.venv/bin/python -m pytest tests/test_chunker.py -q     # 18 passed, instant
+```
+
+Phrases group into windows. A window closes on: utterance end, 3 phrases, 1.0s
+pause, or 12s. The pause and utterance-end rules are **gated on the thought
+sounding finished** — terminal punctuation plus 4+ words — because the signal
+that a sound stopped is not the signal that a thought finished.
+
+Honest note found while testing: at the shipped config the 12s `max_duration`
+rule is **unreachable**, because reaching it needs phrases still arriving (or
+hard silence fires at 2.5s) but fewer than 3 of them (or max_sentences fires).
+It is kept as insurance for anyone raising the sentence cap. Both facts are
+pinned by tests.
 
 ### Stage 2 — the wire
 
