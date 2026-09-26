@@ -83,6 +83,10 @@ function windowBlock(win, isPending) {
 export function render() {
   el("status").textContent = state.status;
 
+  const banner = el("error");
+  banner.textContent = state.error || "";
+  banner.hidden = !state.error;
+
   const b = state.budget;
   el("budget").textContent =
     b.pool === "byok" ? "your keys" : `${b.claimsLeft} claims left`;

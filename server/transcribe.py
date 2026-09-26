@@ -115,25 +115,34 @@ class DeepgramRelay:
         await self.ws.send(chunk)
 
     async def close(self) -> None:
-        """Order matters. CloseStream asks Deepgram to flush the last words it
-        is holding, so the reader has to still be alive to receive them --
-        cancelling it first, as the previous build did, threw away the tail of
-        the final sentence every time you pressed stop.
+        """Shut the relay down without losing the last words.
+
+        Order matters. CloseStream asks Deepgram to flush whatever it is still
+        holding, so the reader has to be alive to receive it -- cancelling
+        first, as the previous build did, threw away the tail of every final
+        sentence.
+
+        Note the two different suppressions. Around a *socket* operation we
+        suppress Exception only, so a real cancellation of this coroutine
+        still propagates. Around `await task` for a task **we just cancelled
+        ourselves** we must also suppress CancelledError, because awaiting a
+        cancelled task re-raises it by design -- that is not an error here,
+        it is the acknowledgement we asked for.
         """
         self.alive = False
 
         if self.ws is not None:
             with suppress(Exception):
                 await self.ws.send(json.dumps({"type": "CloseStream"}))
-            # Give the flush a moment to come back before tearing down.
+            # Give Deepgram a moment to flush before tearing anything down.
             if self._reader is not None:
-                with suppress(Exception):
+                with suppress(Exception, asyncio.CancelledError):
                     await asyncio.wait_for(asyncio.shield(self._reader), timeout=1.5)
 
         for task in (self._reader, self._keepalive):
             if task is not None:
                 task.cancel()
-                with suppress(Exception):
+                with suppress(Exception, asyncio.CancelledError):
                     await task
 
         if self.ws is not None:

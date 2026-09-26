@@ -32,10 +32,14 @@ AUDIO_CHANNELS = 1
 # How long a gap counts as the end of a phrase.
 DEEPGRAM_ENDPOINTING_MS = 300
 # How long a silence before Deepgram calls the whole utterance finished.
-# Lower than the previous build's 1000ms: that was dead time on every single
-# verdict, and the chunker's punctuation gate already stops us closing a
-# window mid-sentence.
-DEEPGRAM_UTTERANCE_END_MS = 700
+#
+# 1000 is DEEPGRAM'S FLOOR, not a preference. Anything lower is rejected at
+# the handshake with HTTP 400 "beneath the configured step size", which kills
+# the microphone entirely -- the connection never opens, so no audio is ever
+# sent and the transcript stays empty with no clue why. Trying 700 here to
+# save 300ms cost an hour. Do not lower it.
+DEEPGRAM_UTTERANCE_END_MS_FLOOR = 1000
+DEEPGRAM_UTTERANCE_END_MS = 1000
 
 # Words Deepgram would otherwise guess wrong. Nova-3 boosts these ("keyterm
 # prompting"), up to 100. Names of people, products and companies are exactly

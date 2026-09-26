@@ -75,10 +75,30 @@ async def check_deepgram() -> bool:
             fail("deepgram", f"HTTP {r.status_code}: {r.text[:120]}")
             return False
         projects = r.json().get("projects", [])
-        ok("deepgram", f"{len(projects)} project(s)")
-        return True
     except Exception as exc:  # noqa: BLE001
         fail("deepgram", str(exc)[:120])
+        return False
+
+    # The key being valid is not the same as our URL being valid. A bad
+    # parameter is rejected at the handshake with a 400, the microphone never
+    # opens, and the transcript stays empty with nothing on screen to say why.
+    # So open the exact socket the app opens.
+    try:
+        import websockets
+        from server.transcribe import _build_url
+
+        ws = await websockets.asyncio.client.connect(
+            _build_url(),
+            additional_headers={"Authorization": f"Token {key}"},
+            max_size=None,
+        )
+        await ws.close()
+        ok("deepgram", f"{len(projects)} project(s), live stream URL accepted")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        detail = str(exc)[:160]
+        fail("deepgram", f"stream URL rejected: {detail}")
+        print("         ^ the key is fine; a parameter in transcribe._build_url() is not")
         return False
 
 

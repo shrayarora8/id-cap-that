@@ -129,3 +129,41 @@ def test_every_builder_is_documented():
     ]
     undocumented = [f.__name__ for f in builders if not (f.__doc__ or "").strip()]
     assert not undocumented, f"undocumented message builders: {undocumented}"
+
+
+# --- config guard rails -----------------------------------------------------
+
+
+def test_utterance_end_ms_is_not_below_deepgrams_floor():
+    """Deepgram rejects the handshake with HTTP 400 when utterance_end_ms is
+    under 1000. The connection never opens, so no audio is ever sent and the
+    transcript stays empty with nothing on screen explaining it. Setting 700
+    here to shave 300ms of latency broke the microphone completely."""
+    from server import config
+
+    assert config.DEEPGRAM_UTTERANCE_END_MS >= config.DEEPGRAM_UTTERANCE_END_MS_FLOOR
+
+
+def test_the_deepgram_url_declares_the_audio_format_we_actually_send():
+    """Without encoding/sample_rate/channels Deepgram tries to sniff a
+    container, finds raw samples, and returns nothing at all -- silently."""
+    from server import config
+    from server.transcribe import _build_url
+
+    url = _build_url()
+    assert "encoding=linear16" in url
+    assert f"sample_rate={config.AUDIO_SAMPLE_RATE}" in url
+    assert f"channels={config.AUDIO_CHANNELS}" in url
+
+
+def test_the_wire_format_and_the_deepgram_url_agree():
+    """The page is told one format in session.ready and Deepgram is told
+    another in the URL. If those two ever disagree, audio is garbage and the
+    only symptom is an empty transcript."""
+    from server import messages
+    from server.transcribe import _build_url
+
+    url = _build_url()
+    assert f"sample_rate={messages.AUDIO_FORMAT['sample_rate']}" in url
+    assert f"encoding={messages.AUDIO_FORMAT['encoding']}" in url
+    assert f"channels={messages.AUDIO_FORMAT['channels']}" in url

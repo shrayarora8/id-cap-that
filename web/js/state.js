@@ -10,6 +10,7 @@ export const state = {
   interim: "",
   listening: false,
   status: "not connected",
+  error: null,
   budget: { claimsLeft: 0, claimsCap: 0, pool: "public" },
 };
 
@@ -35,6 +36,10 @@ export function apply(msg) {
 
     case "server.note":
       state.status = msg.message;
+      // An error must not scroll past as grey status text. The microphone
+      // failing silently is the single worst failure this app has, because
+      // the screen looks exactly like "nobody is talking".
+      state.error = msg.level === "error" ? msg.message : null;
       return true;
 
     case "transcript.interim":

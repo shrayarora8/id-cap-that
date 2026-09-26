@@ -81,3 +81,11 @@ footer { border-top: 1px solid var(--line); padding: 10px 16px; display: flex; g
   #rail { border-top: none; border-left: 1px solid var(--line); width: 380px; max-height: none; }
   .transcript, .interim { font-size: 22px; }
 }
+
+.error {
+  background: #32171B;
+  color: #FF4A4A;
+  border-bottom: 1px solid #FF4A4A;
+  padding: 10px 16px;
+  font-size: 14px;
+}
