@@ -1,0 +1,13 @@
+{
+  "name": "i'd cap that",
+  "short_name": "cap that",
+  "description": "Listens to a conversation and marks the claims that don't hold up.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B0D12",
+  "theme_color": "#0B0D12",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0B0D12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>i'd cap that</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="stylesheet" href="/css/scaffold.css">
+</head>
+<body>
+
+<header>
+  <span class="wordmark">i'd cap that</span>
+  <span id="budget" class="budget"></span>
+  <span id="status" class="status">not connected</span>
+</header>
+
+<main>
+  <section id="transcript-pane">
+    <div id="transcript" class="transcript"></div>
+    <div id="interim" class="interim"></div>
+  </section>
+  <aside id="rail">
+    <div id="detail"></div>
+  </aside>
+</main>
+
+<footer>
+  <button id="listen" class="listen">start listening</button>
+  <input id="say" type="text" placeholder="or type a claim and press enter" autocomplete="off" autocapitalize="sentences">
+</footer>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

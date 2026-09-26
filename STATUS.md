@@ -5,7 +5,7 @@ sync without talking to each other constantly. **Every session updates this
 file in the same commit as the work it describes.** If it is not here, the
 other session does not know about it.
 
-Last updated: stage 0 complete.
+Last updated: stage 2 complete, stage 3 backend done.
 
 ---
 
@@ -40,8 +40,8 @@ sides is not a contract.
 |---|---|---|---|
 | 0 | Repo, keys, **frozen contract** | backend | **done** |
 | 1 | Page shell, design system applied, PWA | frontend | not started |
-| 2 | WebSocket, session, JS modules, typed-claim box, replay recorder | both | not started |
-| 3 | AudioWorklet PCM to Deepgram, HTTPS tunnel | backend | not started |
+| 2 | WebSocket, session, JS modules, typed-claim box, replay recorder | backend | **done** |
+| 3 | AudioWorklet PCM to Deepgram, HTTPS tunnel | backend | **server + browser written, needs a phone test** |
 | 4 | Chunker, pre-filter, spans (pure logic, tested) | backend | not started |
 | 5 | LLM cache, sorter, claims underline live | backend | not started |
 | 6 | Snippet-first retrieval, judge, guard rails | backend | not started |
@@ -51,6 +51,23 @@ sides is not a contract.
 ---
 
 ## Done, and how to verify it
+
+### Stage 2 — the wire
+
+```bash
+.venv/bin/uvicorn server.main:app --reload --port 8000   # then open localhost:8000
+.venv/bin/python scripts/watch_messages.py "Messi scored 45 goals last season."
+.venv/bin/python scripts/replay.py --list
+```
+
+Typing a claim into the box puts it in the transcript. `watch_messages.py`
+shows the same thing as a stream of text with no browser open.
+
+Every session records itself to `recordings/*.jsonl` with relative timings.
+`scripts/replay.py` plays one back into the real UI at its original speed over
+a normal WebSocket, so the page cannot tell the difference. That is how the UI
+gets built without talking, how a bug nine seconds into a conversation gets
+reproduced exactly, and what still demos when the venue wifi dies.
 
 ### Stage 0 — repo, keys, contract
 
@@ -95,3 +112,11 @@ Newest last. One line per handoff between sessions.
 
 - `backend` stage 0 complete, contract frozen, pushed. Frontend is unblocked
   for stage 1 as soon as the design is agreed with the user.
+- `backend` stage 2 done. The wire is live: `/ws` accepts a connection, emits
+  `session.ready` then `server.note`, and turns `inject_text` into
+  `transcript.final`. `web/js/` has the module split frontend will build on:
+  `ws.js` (reconnecting socket), `state.js` (apply a message, return whether a
+  redraw is needed), `render.js` (throwaway), `audio.js` + `pcm-worklet.js`
+  (raw PCM capture), `app.js` (wiring only).
+  **`web/css/scaffold.css` and `web/js/render.js` are throwaway. Delete them.**
+  Everything else in `web/js/` is real and should be kept.
