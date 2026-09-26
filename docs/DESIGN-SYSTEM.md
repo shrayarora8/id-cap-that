@@ -89,6 +89,52 @@ Quotes are shown as what is on the page rather than as something a model said,
 because the server verifies every citation verbatim against its passage and
 drops the ones it cannot find.
 
+### 5. The reader is never trapped · agreed
+
+Found in the first long live session: a whole conversation became unreachable.
+Three separate causes, all of them mine:
+
+- `grid-template-rows: auto 1fr auto` — a bare `1fr` row takes an automatic
+  minimum of its content size, so the transcript grew the page instead of
+  scrolling inside itself.
+- `justify-content: flex-end` on a scroll container puts overflow above the
+  top edge, where `scrollTop` cannot reach it. Lines are pushed down with an
+  auto margin on a zero-height first item instead, which collapses to nothing
+  the moment content overflows.
+- Whether to keep following the conversation was decided from a scroll event.
+  Events coalesce and can be missed, and one missed event pins the transcript
+  to the bottom for the rest of the session. It is now measured from the
+  reader's actual position, immediately before anything is appended.
+
+The rule: **autoscroll only while the reader is already at the bottom.** When
+they are not, a pill says what they are missing and takes one tap to return —
+and it names a cap specifically, because that is the one thing worth pulling
+someone back for.
+
+### 6. Recessive is not invisible · agreed
+
+The dim line state was taken far enough down that spoken sentences vanished
+against the field on a laptop at normal distance. A line that has been said
+still has to be readable — the whole point of a transcript is reading back
+what was said. Dim enough to yield to the live line, bright enough to read.
+There is no second, dimmer tier for older lines; the fade at the top edge does
+that job without making words unreadable.
+
+### 7. No internal vocabulary reaches the screen · agreed
+
+`E1` and `E2` are how a citation is joined to its source. `kind` and `shape`
+(`world_fact`, `count`) describe a claim to the judge. All four are plumbing,
+and all four were on screen. They read as leaked logs, because that is what
+they were.
+
+The rule: **if a field exists to make the system work, it does not appear in
+the UI.** A quote sits with the site it came from and needs no id to prove it.
+Where `kind · shape` was, the card now says how long the check took and how
+many sources were read, which are things a person actually wants to know.
+
+Stage names are written for a reader too: `weighing evidence`, `digging
+deeper`, not `sifting` and `escalating`.
+
 ### Still to take
 
 Video frame · lyric emphasis · the verdict mark · type · the other four

@@ -21,6 +21,7 @@
     font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
     overscroll-behavior-y: none;
+    overflow: hidden;          /* the transcript scrolls, the page never does */
     /* The field taking a verdict's colour. The one slow transition here. */
     transition: background-color var(--dur-field) var(--ease);
   }
@@ -39,9 +40,16 @@
 
 @layer layout {
   .app {
-    min-height: 100dvh;        /* dvh, never vh — vh hides the dock on iOS */
+    /* dvh, never vh — vh hides the dock on iOS.
+       height, not min-height, and minmax(0, 1fr) rather than 1fr: a bare 1fr
+       row has an automatic minimum of its content size, so the transcript grew
+       the whole page instead of scrolling inside it. Combined with the old
+       justify-content:flex-end that put every earlier line above the top of
+       an unscrollable box, and a whole conversation became unreachable. */
+    height: 100dvh;
+    min-height: 100dvh;
     display: grid;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
     max-width: var(--measure);
     margin-inline: auto;
     padding-inline: calc(var(--gutter) + var(--safe-left))
@@ -109,7 +117,6 @@
     overflow-anchor: auto;
     display: flex;
     flex-direction: column;
-    justify-content: flex-end;
     gap: var(--line-gap);
     padding: var(--sp-7) 0 var(--sp-5);
     /* Lines dissolve into the field at the top rather than being cut off. */
@@ -117,6 +124,14 @@
     scrollbar-width: none;
   }
   .lyr::-webkit-scrollbar { display: none; }
+
+  /* Lines sit at the bottom and grow upward, WITHOUT justify-content:flex-end.
+     In a scroll container that keeps the overflow above the top edge
+     unreachable -- scrollTop cannot go negative -- so once the transcript is
+     longer than the screen you can never scroll back to the start of your own
+     conversation. An auto margin on a zero-height first item does the same
+     job and collapses to nothing the moment the content overflows. */
+  .lyr::before { content: ""; margin-block-start: auto; }
 
   .line {
     margin: 0;
@@ -132,7 +147,6 @@
   /* The lit states. A line stays lit while it still has work in it, and
      lights back up when a late verdict finally lands on it. */
   .line.live, .line.held, .line.relit { color: var(--live); }
-  .line.sunk { color: var(--sunk); }
 
   .interim { color: var(--faint); }
   .interim::after {
@@ -428,7 +442,7 @@
     color: var(--past); text-decoration: none;
   }
   .src:hover { background: color-mix(in oklab, var(--field) 74%, var(--live)); }
-  .src .eid { margin-left: auto; color: var(--sunk); }
+  .src .host { margin-left: auto; color: var(--faint); }
 
   /* Trust tier: neutral fill plus border style plus a glyph, so a tier can
      never be mistaken for a verdict. Only tier 4 borrows alarm colour. */
@@ -455,6 +469,26 @@
   .conf[data-level="high"]   i:nth-child(-n+3),
   .conf[data-level="medium"] i:nth-child(-n+2),
   .conf[data-level="low"]    i:nth-child(-n+1) { background: var(--past); }
+
+  .jump {
+    /* Outside the scroll container: inside it, the pill would add to
+       scrollHeight and fight the very measurement that positions it. */
+    position: fixed;
+    z-index: var(--z-bar);
+    right: calc(var(--gutter) + var(--safe-right));
+    bottom: calc(var(--sp-8) + var(--sp-7) + var(--safe-bottom));
+    padding: var(--sp-3) var(--sp-5);
+    border: 1px solid var(--hair);
+    border-radius: var(--r-pill);
+    background: color-mix(in oklab, var(--field) 86%, var(--live));
+    font-family: var(--font-ui);
+    font-size: var(--fs-label);
+    font-weight: var(--fw-semi);
+    letter-spacing: var(--ls-label);
+    text-transform: uppercase;
+    color: var(--past);
+  }
+  .jump[data-new="cap"] { border-color: var(--v-red); color: var(--v-red); }
 
   .card-foot { display: flex; align-items: center; gap: var(--sp-4);
                margin-top: var(--sp-4); padding-top: var(--sp-4);

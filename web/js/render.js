@@ -49,7 +49,35 @@ let startedAt = new Map();  // claim_id -> when we first saw it unresolved
 let cardSig = "";           // what the open card was last built from
 let ticker = null;
 let pinned = true;
+let unread = 0;
+let newCap = false;
 const PIN_SLOP = 48;
+
+/** When the reader has scrolled away, say what they are missing and give them
+ *  one tap back. Without this, scrolling up silently stops the feed. */
+function paintJump() {
+  const box = lyr();
+  let pill = document.querySelector(".jump");
+  if (pinned || !unread) {
+    if (pill) pill.remove();
+    return;
+  }
+  if (!pill) {
+    pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = "jump";
+    pill.onclick = () => {
+      pinned = true;
+      unread = 0;
+      newCap = false;
+      pill.remove();
+      box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
+    };
+    document.body.appendChild(pill);
+  }
+  pill.dataset.new = newCap ? "cap" : "";
+  pill.textContent = newCap ? `↓ ${unread} new · 1 cap` : `↓ ${unread} new`;
+}
 
 // ---------------------------------------------------------------------------
 // text -> lines
@@ -200,8 +228,18 @@ function buildLine(line) {
  *  Nothing predicts an end. The count is honest about how long this took,
  *  which is the pitch.
  */
+const STAGE_WORDS = {
+  queued: "checking",
+  extracting: "reading the claim",
+  searching: "searching",
+  reading: "reading sources",
+  sifting: "weighing evidence",
+  judging: "deciding",
+  escalating: "digging deeper",
+};
+
 function workLabel(c) {
-  const stage = !c.stage || c.stage === "queued" ? "checking" : c.stage;
+  const stage = STAGE_WORDS[c.stage] || "checking";
   const t0 = startedAt.get(c.id);
   const secs = t0 ? ((performance.now() - t0) / 1000).toFixed(1) : "0.0";
   return `${stage} · ${secs}s`;
@@ -384,6 +422,7 @@ function flashField() {
 
     if (!LOUD.has(c.verdict)) continue;
 
+    if (!pinned && c.verdict === "CONTRADICTED") newCap = true;
     sound.verdict(c.verdict);
     document.body.dataset.flash = c.verdict;
     clearTimeout(flashField._t);
@@ -463,7 +502,7 @@ function showCard(claimId) {
   if (c.verdictStage === "provisional") {
     const p = document.createElement("span");
     p.className = "prov";
-    p.textContent = `quick read · ${c.depth || "snippets"}`;
+    p.textContent = "quick read";
     card.appendChild(p);
   }
 
@@ -495,10 +534,13 @@ function showCard(claimId) {
     const q = document.createElement("blockquote");
     q.className = "quote";
     q.textContent = `“${cite.quote}”`;
+    // The evidence_id is how a quote is joined to its source. That join is
+    // plumbing: it belongs in the code, not on the screen. The quote simply
+    // sits with the site it came from.
     const src = byId.get(cite.evidence_id);
     if (src) {
       const cap = document.createElement("cite");
-      cap.textContent = `${host(src.url)} · ${cite.evidence_id}`;
+      cap.textContent = host(src.url);
       q.appendChild(cap);
     }
     card.appendChild(q);
@@ -515,11 +557,10 @@ function showCard(claimId) {
     tier.dataset.t = String(e.tier || 3);
     tier.textContent = `${TIER_GLYPH[e.tier] || "◌"} ${TIER_NAME[e.tier] || "unknown"}`;
     a.appendChild(tier);
-    a.appendChild(document.createTextNode(host(e.url)));
-    const eid = document.createElement("span");
-    eid.className = "eid";
-    eid.textContent = e.evidence_id || "";
-    a.appendChild(eid);
+    const name = document.createElement("span");
+    name.className = "host";
+    name.textContent = host(e.url);
+    a.appendChild(name);
     card.appendChild(a);
   }
 
@@ -534,9 +575,16 @@ function showCard(claimId) {
     conf.appendChild(document.createTextNode(` ${c.confidence} confidence`));
     foot.appendChild(conf);
   }
+  // `kind` and `shape` are for the judge, not for a person -- "world_fact ·
+  // count" tells a reader nothing they wanted to know. What a person actually
+  // wants here is how long it took and how much was read.
   const meta = document.createElement("span");
   meta.className = "card-meta";
-  meta.textContent = [c.kind, c.shape].filter(Boolean).join(" · ");
+  const n = (c.evidence || []).length;
+  meta.textContent = [
+    c.tookMs ? `${(c.tookMs / 1000).toFixed(1)}s` : "",
+    n ? `${n} source${n === 1 ? "" : "s"}` : "",
+  ].filter(Boolean).join(" · ");
   foot.appendChild(meta);
   card.appendChild(foot);
 
@@ -576,11 +624,20 @@ function paintChrome() {
 
 export function render() {
   const box = lyr();
+
+  // Whether to keep following the conversation is decided from where the
+  // reader actually is, measured before anything is appended -- never from a
+  // scroll event, which can coalesce or be missed, and one missed event pins
+  // the transcript to the bottom for the rest of the session.
+  const wasAtBottom =
+    box.scrollHeight - box.scrollTop - box.clientHeight <= PIN_SLOP;
+
   const { lines, closed } = buildLines();
 
   // Rebuild only from the first line that actually changed. Everything above
   // it keeps its DOM, its text selection and its running animations.
   const sigs = lines.map(lineSignature);
+  const lineSigsBefore = lineSigs.length;
   let from = 0;
   while (from < sigs.length && from < lineSigs.length && sigs[from] === lineSigs[from]) from += 1;
 
@@ -607,7 +664,17 @@ export function render() {
     const c = state.claims.get(openCard);
     if (c && cardSignature(c) !== cardSig) showCard(openCard);
   }
-  if (pinned) box.scrollTo({ top: box.scrollHeight, behavior: "auto" });
+
+  if (wasAtBottom) {
+    pinned = true;
+    unread = 0;
+    newCap = false;
+    box.scrollTo({ top: box.scrollHeight, behavior: "auto" });
+  } else {
+    pinned = false;
+    if (sigs.length !== lineSigsBefore) unread += 1;
+  }
+  paintJump();
 }
 
 // --- one listener for the whole transcript, however much of it there is -----
@@ -633,12 +700,21 @@ document.addEventListener("keydown", (ev) => {
   }
 });
 
-// Autoscroll only while pinned: never yank the page while someone is reading
-// something further up.
-document.addEventListener("DOMContentLoaded", () => {
+// Autoscroll only while pinned, and never yank the page while someone is
+// reading further up. Attached immediately rather than on DOMContentLoaded:
+// this is a module, the element is already parsed, and if this listener ever
+// fails to attach the transcript pins to the bottom forever and a whole
+// conversation becomes unreachable.
+(function watchScroll() {
   const box = lyr();
   if (!box) return;
   box.addEventListener("scroll", () => {
+    const wasPinned = pinned;
     pinned = box.scrollHeight - box.scrollTop - box.clientHeight <= PIN_SLOP;
+    if (pinned && !wasPinned) {
+      unread = 0;
+      newCap = false;
+      paintJump();
+    }
   }, { passive: true });
-});
+})();

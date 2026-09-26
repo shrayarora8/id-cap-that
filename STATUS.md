@@ -244,4 +244,11 @@ up when a late verdict lands on it, because verdicts arrive out of order.
   `claim.error` was treated as work-in-progress and ticked forever; a selector
   matched tags as if they were marks and deleted them; the card rebuilt on
   every message and flickered.
+- `frontend` four issues from the first long live session, all fixed:
+  the scroll trap (three causes, see decision 5), the dim state being too dim
+  to read, `E1`/`E2` on screen, and `world_fact · count` in the card footer.
+  Decisions 5-7 in `docs/DESIGN-SYSTEM.md`.
+- `frontend` internal fields never reach the UI now. Backend keeps
+  `evidence_id`, `kind` and `shape` on the wire -- the join and the judge need
+  them -- the page just doesn't draw them.
 

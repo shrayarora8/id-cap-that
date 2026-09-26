@@ -33,10 +33,15 @@
   --live:  #F3F5F7;   /* the lit line. 15.8:1 on ink. */
 
   /* Derived. The dim states are the field moved toward the ink, never grey. */
-  --past:  color-mix(in oklab, var(--field) 72%, var(--live));
-  --faint: color-mix(in oklab, var(--field) 84%, var(--live));
-  --hair:  color-mix(in oklab, var(--field) 88%, var(--live));
-  --sunk:  color-mix(in oklab, var(--field) 92%, var(--live));
+  /* A line that has been spoken still has to be READABLE. Recessive is not
+     the same as invisible, and the first long live session failed on exactly
+     this: whole sentences were gone against the field at normal laptop
+     distance. Dim enough to get out of the way of the live line, bright
+     enough to read back a conversation. */
+  --past:  color-mix(in oklab, var(--field) 48%, var(--live));
+  --faint: color-mix(in oklab, var(--field) 62%, var(--live));
+  --hair:  color-mix(in oklab, var(--field) 86%, var(--live));
+  --sunk:  color-mix(in oklab, var(--field) 70%, var(--live));
 
   /* --- verdicts ------------------------------------------------------------
      Red and green are decided. The other four are design round 6; amber and
