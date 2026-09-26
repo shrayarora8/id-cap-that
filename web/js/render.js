@@ -45,6 +45,9 @@ let lineSigs = [];          // per-line signature, for reconciliation
 let flashed = new Set();    // claims whose field flash has already fired
 let relitTimers = new Map();
 let openCard = null;        // claim_id whose card is showing
+let startedAt = new Map();  // claim_id -> when we first saw it unresolved
+let cardSig = "";           // what the open card was last built from
+let ticker = null;
 let pinned = true;
 const PIN_SLOP = 48;
 
@@ -185,17 +188,59 @@ function buildLine(line) {
   return p;
 }
 
-/** Verdict colours and the tag, applied in place so animations never restart. */
+/** The work ladder, and the verdict, in the same slot.
+ *
+ *  End of sentence to verdict measures 7.6s, and the same claim can take 3s or
+ *  7s. That is too long to carry with a loop and a footer, and the variance
+ *  rules out anything that implies a rate: a progress bar that fills in four
+ *  seconds and then waits three reads as broken.
+ *
+ *  So the ladder is put where the eye already is — in the slot the verdict
+ *  will occupy, right beside the words — and it names the work and counts up.
+ *  Nothing predicts an end. The count is honest about how long this took,
+ *  which is the pitch.
+ */
+function workLabel(c) {
+  const stage = !c.stage || c.stage === "queued" ? "checking" : c.stage;
+  const t0 = startedAt.get(c.id);
+  const secs = t0 ? ((performance.now() - t0) / 1000).toFixed(1) : "0.0";
+  return `${stage} · ${secs}s`;
+}
+
+function tick() {
+  const nodes = [...lyr().querySelectorAll(".tag.work")];
+  if (!nodes.length) {
+    clearInterval(ticker);
+    ticker = null;
+    return;
+  }
+  for (const n of nodes) {
+    const c = state.claims.get(n.dataset.claimId);
+    if (c) n.textContent = workLabel(c);
+  }
+}
+
 function paintClaims() {
+  let working = false;
+
   for (const c of state.claims.values()) {
-    const marks = [...lyr().querySelectorAll(`[data-claim-id="${CSS.escape(c.id)}"]`)];
+    const marks = [...lyr().querySelectorAll(`.mark[data-claim-id="${CSS.escape(c.id)}"]`)];
     if (!marks.length) continue;
 
     const slug = SLUG(c.verdict);
-    for (const m of marks) {
-      const checking = !c.verdict && c.checkable !== false;
-      m.classList.toggle("checking", checking);
+    // claim.error resolves a claim without giving it a verdict: it sets a
+    // sticker and nothing else. Treating that as "still checking" leaves a
+    // counter ticking forever on a claim that already gave up.
+    const errored = !c.verdict && Boolean(c.sticker);
+    const checking = !c.verdict && !c.sticker && c.checkable !== false;
+    if (checking) {
+      working = true;
+      if (!startedAt.has(c.id)) startedAt.set(c.id, performance.now());
+    }
 
+    for (const m of marks) {
+      m.classList.toggle("checking", checking);
+      m.toggleAttribute("data-err", errored);
       if (c.verdict) {
         m.dataset.v = c.verdict;
         m.style.setProperty("--vc", `var(--v-${slug})`);
@@ -203,45 +248,57 @@ function paintClaims() {
       } else {
         delete m.dataset.v;
       }
-
       m.setAttribute("aria-expanded", String(openCard === c.id));
       m.setAttribute("aria-label", ariaFor(c));
-      const old = m.querySelector(".tag");
-      if (old) old.remove();
     }
 
-    // Only the last fragment of a claim carries the label.
-    const label = c.sticker || (c.verdict ? c.verdict : "");
-    if (label) {
-      const last = marks[marks.length - 1];
+    const last = marks[marks.length - 1];
+    const kind = checking ? "work" : "verdict";
+    const label = checking ? workLabel(c) : (c.sticker || c.verdict || "");
 
-      // A claim almost never includes the sentence's full stop, so without
-      // this the label lands between the words and their punctuation:
-      // "...per month ABSOLUTE CAP." Pull the punctuation inside the mark,
-      // after the marked text, so it reads "...per month. ABSOLUTE CAP".
-      const after = last.nextSibling;
-      if (after && after.nodeType === Node.TEXT_NODE && !last.querySelector(".punct")) {
-        const m = /^[.,;:!?…)"'”’\]]+/.exec(after.textContent);
-        if (m) {
-          after.textContent = after.textContent.slice(m[0].length);
-          const punct = document.createElement("span");
-          punct.className = "punct";
-          punct.textContent = m[0];
-          last.appendChild(punct);
-        }
+    // A claim almost never includes the sentence's full stop, so without this
+    // the label lands between the words and their punctuation: "...per month
+    // ABSOLUTE CAP." Pull the punctuation inside the mark instead.
+    const after = last.nextSibling;
+    if (after && after.nodeType === Node.TEXT_NODE && !last.querySelector(".punct")) {
+      const m = /^[.,;:!?…)"'”’\]]+/.exec(after.textContent);
+      if (m) {
+        after.textContent = after.textContent.slice(m[0].length);
+        const punct = document.createElement("span");
+        punct.className = "punct";
+        punct.textContent = m[0];
+        last.appendChild(punct);
       }
+    }
 
-      const tag = document.createElement("span");
-      tag.className = "tag";
-      tag.textContent = label;
+    // Reuse the existing tag when only its text changed, so the counter can
+    // tick without replaying the entrance animation ten times a second.
+    let tag = lyr().querySelector(`.tag[data-claim-id="${CSS.escape(c.id)}"]`);
+    if (tag && (tag.dataset.kind !== kind || tag.parentElement !== last)) {
+      tag.remove();
+      tag = null;
+    }
+    if (!label) {
+      if (tag) tag.remove();
+      continue;
+    }
+    if (!tag) {
+      tag = document.createElement("span");
+      tag.className = kind === "work" ? "tag work" : "tag";
+      tag.dataset.kind = kind;
+      tag.dataset.claimId = c.id;
       tag.setAttribute("aria-hidden", "true");
       last.appendChild(tag);
     }
+    tag.textContent = label;
   }
+
+  if (working && !ticker) ticker = setInterval(tick, 100);
 }
 
 function ariaFor(c) {
   const claim = c.normalized || c.quote || "claim";
+  if (!c.verdict && c.sticker) return `Claim: ${claim}. Could not be checked.`;
   if (!c.verdict) return `Claim: ${claim}. Being checked.`;
   const stage = c.verdictStage === "provisional" ? " Quick read." : "";
   return `Claim: ${claim}. Verdict: ${c.sticker || c.verdict}.${stage}`;
@@ -315,7 +372,7 @@ function flashField() {
     // A verdict can land eight seconds late, on a line that has gone dim and
     // scrolled up. Light it back up so the change is seen where it happened.
     for (const sp of c.spans || []) {
-      const m = lyr().querySelector(`[data-claim-id="${CSS.escape(c.id)}"]`);
+      const m = lyr().querySelector(`.mark[data-claim-id="${CSS.escape(c.id)}"]`);
       const line = m && m.closest(".line");
       if (!line || line.classList.contains("live")) break;
       line.classList.add("relit");
@@ -358,6 +415,18 @@ function closeCard() {
   const c = document.querySelector(".card");
   if (c) c.remove();
   openCard = null;
+  cardSig = "";
+}
+
+/** Only the fields the card actually draws. Rebuilding it on every message
+ *  replays the entrance animation several times a second while a claim is
+ *  being checked, which reads as flicker. */
+function cardSignature(c) {
+  return [
+    c.verdict, c.sticker, c.verdictStage, c.depth, c.summary, c.correction,
+    c.confidence, c.tookMs, c.detail, c.stage,
+    (c.citations || []).length, (c.evidence || []).length,
+  ].join("|");
 }
 
 function showCard(claimId) {
@@ -365,6 +434,7 @@ function showCard(claimId) {
   const c = state.claims.get(claimId);
   if (!c) return;
   openCard = claimId;
+  cardSig = cardSignature(c);
 
   const slug = SLUG(c.verdict);
   const card = document.createElement("div");
@@ -397,24 +467,26 @@ function showCard(claimId) {
     card.appendChild(p);
   }
 
-  if (c.summary) {
-    const p = document.createElement("p");
-    p.textContent = c.summary;
-    card.appendChild(p);
-  }
-
-  if (!c.verdict && c.checkable !== false) {
-    const p = document.createElement("p");
-    p.textContent = c.detail || "checking…";
-    card.appendChild(p);
-  }
-
+  // Above the summary, not below the quotes. A correction is the one thing on
+  // this card a person can act on -- it turns a dunk into information.
   if (c.correction) {
     const fix = document.createElement("div");
     fix.className = "fix";
     fix.innerHTML = `<span>actually:</span> `;
     fix.appendChild(document.createTextNode(c.correction));
     card.appendChild(fix);
+  }
+
+  if (c.summary) {
+    const p = document.createElement("p");
+    p.textContent = c.summary;
+    card.appendChild(p);
+  }
+
+  if (!c.verdict && !c.sticker && c.checkable !== false) {
+    const p = document.createElement("p");
+    p.textContent = c.detail || "checking…";
+    card.appendChild(p);
   }
 
   // A citation has already been verified verbatim against its passage on the
@@ -531,7 +603,10 @@ export function render() {
   paintTally();
   paintChrome();
 
-  if (openCard) showCard(openCard);
+  if (openCard) {
+    const c = state.claims.get(openCard);
+    if (c && cardSignature(c) !== cardSig) showCard(openCard);
+  }
   if (pinned) box.scrollTo({ top: box.scrollHeight, behavior: "auto" });
 }
 

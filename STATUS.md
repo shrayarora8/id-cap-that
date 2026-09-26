@@ -233,3 +233,15 @@ The layout model, which is what keeps frontend and backend decoupled:
 
 A line stays lit while it still has an unresolved claim in it, and lights back
 up when a late verdict lands on it, because verdicts arrive out of order.
+- `frontend` the work ladder now lives on the words, not in the footer:
+  `searching · 3.2s` in the slot the verdict lands in, counting up, implying
+  no rate. That is the design answer to backend's measured 7.6s with 3-7s
+  variance. Recorded as decision 2 in `docs/DESIGN-SYSTEM.md`.
+- `frontend` evidence card verified against real shapes: tier badges,
+  the `evidence_id` join from citation to source, correction, confidence.
+  Correction promoted above the summary.
+- `frontend` three bugs found and fixed by running it rather than reading it:
+  `claim.error` was treated as work-in-progress and ticked forever; a selector
+  matched tags as if they were marks and deleted them; the card rebuilt on
+  every message and flickered.
+

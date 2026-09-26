@@ -225,6 +225,17 @@
     color: var(--vc);
     animation: tagin var(--dur-base) var(--ease) both;
   }
+  /* The ladder, in the slot the verdict will land in. Never implies a rate:
+     the count goes up, nothing fills, nothing predicts an end. */
+  .tag.work { color: var(--wash); font-weight: var(--fw-semi); }
+
+  /* A claim that could not be checked is not a verdict and must never look
+     like one -- the six verdict strings are fixed and this is not among them. */
+  .mark[data-err] .txt {
+    border-bottom: 2px dotted var(--faint);
+    color: inherit;
+  }
+  .mark[data-err] .tag { color: var(--faint); }
   @keyframes tagin {
     from { opacity: 0; transform: translateY(-3px); }
     to   { opacity: 1; transform: none; }
@@ -336,9 +347,18 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: var(--sp-6);
-    border: 1px solid var(--hair);
     border-radius: var(--r-lg);
-    background: color-mix(in oklab, var(--field) 88%, var(--live));
+
+    /* The card sits on a lighter surface than the field, so it re-derives the
+       dim steps against ITS OWN background. Inheriting the field's steps left
+       the summary, the quote and the hostnames a shade away from unreadable. */
+    --surface: color-mix(in oklab, var(--field) 88%, var(--live));
+    --past:  color-mix(in oklab, var(--surface) 30%, var(--live));
+    --faint: color-mix(in oklab, var(--surface) 55%, var(--live));
+    --sunk:  color-mix(in oklab, var(--surface) 70%, var(--live));
+    --hair:  color-mix(in oklab, var(--surface) 84%, var(--live));
+    background: var(--surface);
+    border: 1px solid var(--hair);
     box-shadow: 0 18px 44px rgb(0 0 0 / 0.34);
     animation: cardin var(--dur-base) var(--ease) both;
   }

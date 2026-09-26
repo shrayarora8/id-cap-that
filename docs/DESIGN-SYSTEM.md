@@ -52,10 +52,47 @@ make feel like an event on video); and a static colour field with no reaction
 Open inside this decision: the resting field hue (ink / moss / clay / sage) and
 the exact flash colours. Board 01 carries all four.
 
-### 2–10. Not yet taken
+### 2. The work ladder lives on the words · agreed
+
+Measured, not estimated: end of sentence to verdict is **7.6s**, and the same
+claim can take 3s or 7s. 1.5s to close the window, 1.7s sorter, 1.3s search,
+3.2s judge — two sequential Claude calls are most of it, and the judge alone
+has measured between 2.7s and 6.5s for the same output size.
+
+Seven seconds with real variance rules out two things. It rules out a footer
+status line carrying the wait on its own, because the eye is on the transcript
+and not on the chrome. And it rules out anything implying a rate — a bar that
+fills in four seconds and then sits there for three reads as broken, which is
+worse than showing nothing.
+
+So the ladder is put **in the slot the verdict will land in**, beside the
+words, and it names the stage and counts up: `searching · 3.2s`. Nothing
+predicts an end. The count is honest about how long this took, which is the
+pitch rather than something to hide. The footer keeps the detail
+(`searching worldathletics.org`) because it is too long to sit inline.
+
+### 3. A failed check is not a verdict · agreed
+
+`claim.error` resolves a claim without giving it one. It renders as a dotted
+neutral rule and the words `COULDN'T CHECK`, never in a verdict colour, and it
+is excluded from the tally. The six verdict strings are fixed by the contract
+and this is not among them.
+
+### 4. In the evidence card, the correction outranks everything but the claim · agreed
+
+Order: verdict, the claim, **the correction**, the summary, verified quotes,
+sources, then confidence and kind. The correction is the only line on the card
+a person can act on — it turns a dunk into information — so it sits directly
+under the claim rather than below the quotes.
+
+Quotes are shown as what is on the page rather than as something a model said,
+because the server verifies every citation verbatim against its passage and
+drops the ones it cannot find.
+
+### Still to take
 
 Video frame · lyric emphasis · the verdict mark · type · the other four
-verdicts · claim-to-card · sound · cold start · chrome and motion budget.
+verdicts · sound · cold start · chrome and motion budget.
 
 ## Constraints that carry over from the strawman
 
