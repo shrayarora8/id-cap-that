@@ -438,6 +438,7 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
         # the slow part.
         hits = []
         evidence = await recall(claim.normalized)
+        from_memory = bool(evidence)
 
         if evidence:
             status("searching", "recognised this from what it has already read")
@@ -466,6 +467,41 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
         status("judging", f"weighing {len(evidence)} snippet(s)")
         judgement, checks = await judge_claim(claim.normalized, evidence, claim.shape)
         leg = mark("judge", leg)
+
+        # Memory is allowed to be fast, never allowed to be worse.
+        #
+        # Recall reuses passages that name the claim's subject -- but the same
+        # subject is not the same question. Passages about where the Amazon is
+        # cannot say how long it is, so a remembered answer can come back
+        # "insufficient" where a real search would have settled it. That is a
+        # regression, and the whole condition this feature was built under is
+        # that it must not make anything worse.
+        #
+        # So an unsatisfying remembered answer is not the final word: fall
+        # through to the search we skipped and judge again. The only cost is
+        # on the path that was going to disappoint anyway.
+        if from_memory and judgement.verdict == "INSUFFICIENT_EVIDENCE":
+            log.info("claim %s: memory could not settle it, searching after all", claim_id)
+            status("searching", "not enough in memory, looking it up")
+            hits = await search(
+                claim.search_query or claim.normalized,
+                claim.normalized,
+                claim.official_domain,
+                lambda msg: status("searching", msg),
+            )
+            leg = mark("search", leg)
+            evidence = snippets_as_evidence(hits)
+            if evidence:
+                send_evidence(session, claim_id, evidence, "snippets")
+                status("judging", f"weighing {len(evidence)} snippet(s)")
+                judgement, checks = await judge_claim(
+                    claim.normalized, evidence, claim.shape
+                )
+                leg = mark("rejudge", leg)
+                session.spawn(remember([
+                    Passage(text=e.text, url=e.url, title=e.title, tier=e.tier)
+                    for e in evidence
+                ]))
 
         deep_enough = not judgement.needs_full_pages or not hits
         send_verdict(
