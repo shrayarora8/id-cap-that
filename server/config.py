@@ -130,7 +130,22 @@ MAX_RATE_LIMIT_WAIT_S = 20.0
 # about a second and a credit, and a miss costs a few hundred milliseconds.
 # The threshold is set high enough that a miss is the common outcome early in
 # a session and a hit only happens when the passages genuinely match.
-MOSS_ENABLED = True
+# OFF.
+#
+# Moss bills per MINUTE of open session, not per query. _moss_session() opens
+# one and keeps it for the life of the process, so a server left running all
+# day bills all day -- whether or not a single claim is checked. 216 of 250
+# minutes went in an afternoon of development, heading for about $90 of
+# overage, and almost none of it was doing any work.
+#
+# That is my mistake and it is a bad one: I treated a session like a
+# connection pool. A per-minute resource must be opened for the work and
+# closed after it, or not used at all.
+#
+# Everything still works with this off. recall() returns nothing, remember()
+# does nothing, and every claim searches as it did before Moss existed. The
+# only loss is the ~15ms shortcut on a repeated subject.
+MOSS_ENABLED = False
 # A remembered passage must score at least this to be trusted without a fresh
 # search. Moss scores are cosine-like; this is deliberately strict, because a
 # wrong shortcut costs a wrong verdict and a right one only saves a second.

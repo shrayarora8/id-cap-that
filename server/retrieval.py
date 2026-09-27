@@ -384,6 +384,18 @@ async def rank_passages(claim: str, passages: list[Passage]) -> list[Evidence]:
     just less well ranked -- an optional dependency must never be able to fail
     a verdict.
     """
+    if not config.MOSS_ENABLED:
+        # Moss bills per minute of open session. With it off, rank by the
+        # keyword score we already computed -- worse ordering, same passages,
+        # no session and no bill.
+        return [
+            Evidence(
+                evidence_id=f"E{i + 1}", text=p.text, url=p.url,
+                title=p.title, tier=p.tier, score=0.0,
+            )
+            for i, p in enumerate(passages[: config.PASSAGES_FOR_JUDGE * 2])
+        ]
+
     try:
         from moss import DocumentInfo, MossClient, QueryOptions
 
@@ -537,9 +549,19 @@ async def recall(claim: str) -> list[Evidence]:
     return evidence
 
 
+class MossDisabled(RuntimeError):
+    """Someone tried to open a billed session while Moss is switched off."""
+
+
 async def _moss_session(MossClient):
     """Created once and kept. Everything after it runs in-process, which is
     where the single-digit millisecond queries come from."""
+    # The single door. Every caller is already gated, but a session costs
+    # money by the minute and a future caller that forgets to check should
+    # fail loudly rather than quietly start a meter running.
+    if not config.MOSS_ENABLED:
+        raise MossDisabled("MOSS_ENABLED is False; refusing to open a billed session")
+
     global _moss_session_obj
     async with _moss_lock:
         if _moss_session_obj is None:
