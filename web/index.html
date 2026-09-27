@@ -54,7 +54,6 @@
       </div>
       <p class="hint">Every claim is checked against pages fetched from the live web,
          so leave a couple of seconds between them.</p>
-      <span class="point" aria-hidden="true">↓</span>
     </div>
   </main>
 
@@ -65,7 +64,10 @@
     <span class="status" id="status" data-busy="0"><span class="rotor" id="rotor">◌</span><span id="stxt">not connected</span></span>
     <label for="say" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)">Type a claim to check</label>
     <input id="say" class="say" type="text" placeholder="type a claim instead" autocomplete="off" autocapitalize="sentences" enterkeyhint="send">
-    <button id="listen" class="listen" type="button" aria-pressed="false"><span class="dot"></span>Record</button>
+    <span class="rec-wrap">
+      <span class="point" id="point" aria-hidden="true"><i>↓</i></span>
+      <button id="listen" class="listen" type="button" aria-pressed="false"><span class="dot"></span>Record</button>
+    </span>
   </footer>
 
 </div>

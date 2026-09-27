@@ -48,6 +48,25 @@ el("say").addEventListener("keydown", (ev) => {
 
 // --- the microphone ---------------------------------------------------------
 
+// The arrow points at Record until someone has pressed it. Once they know
+// where it is, being pointed at it again is noise, so it never comes back --
+// on this device, across reloads.
+function hidePointer() {
+  const p = el("point");
+  if (p) p.hidden = true;
+  try {
+    localStorage.setItem("cap.recorded", "1");
+  } catch {
+    // Private window or blocked storage: the arrow simply returns next load.
+  }
+}
+
+try {
+  if (localStorage.getItem("cap.recorded") === "1") hidePointer();
+} catch {
+  // No storage, no memory of it. Showing the arrow is the safe failure.
+}
+
 // A click must change the button on the click, not when the server answers.
 // Waiting on a Deepgram round trip left it looking dead for a second or two,
 // which is exactly how a user ends up pressing it four times.
@@ -63,6 +82,7 @@ function setListen(mode) {
 }
 
 el("listen").addEventListener("click", async () => {
+  hidePointer();
   if (starting) return;            // a second click while the mic is opening
   if (state.listening) {
     state.listening = false;

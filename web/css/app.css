@@ -447,9 +447,13 @@
     position: absolute; top: 0; right: 0;
     width: var(--tap); height: var(--tap);
     display: grid; place-items: center;
-    border: 0; background: none; color: var(--sunk); font-size: 16px;
+    border: 1px solid var(--hair);
+    border-radius: var(--r-pill);
+    background: none;
+    color: var(--past);
+    font-size: 15px;
   }
-  .cold-x:hover { color: var(--live); }
+  .cold-x:hover { color: var(--live); border-color: var(--past); }
 
   /* An example says what it expects to come back, on hover and on focus. The
      colour is the point of the app stated before anything has happened. */
@@ -461,17 +465,27 @@
   .eg[data-v="PARTIALLY_SUPPORTED"]:hover,
   .eg[data-v="PARTIALLY_SUPPORTED"]:focus-visible { color: var(--v-amber); border-color: var(--v-amber); }
 
-  /* Points at the Record button, which is directly below it on the right. */
+  /* Anchored to the button, not to the end of the text. Inside the scrolling
+     content it landed wherever the instructions happened to stop, which was
+     nowhere near the thing it was pointing at. */
+  .rec-wrap { position: relative; display: inline-flex; }
   .point {
-    justify-self: end;
-    margin-inline-end: var(--sp-7);
-    font-size: 26px;
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    pointer-events: none;
     line-height: 1;
+  }
+  .point i {
+    display: block;
+    font-style: normal;
+    font-size: 26px;
     color: var(--live);
     animation: nudge 1400ms var(--ease-soft) infinite;
   }
   @keyframes nudge {
-    0%, 100% { transform: translateY(0);   opacity: .45; }
+    0%, 100% { transform: translateY(0);   opacity: .4; }
     50%      { transform: translateY(7px); opacity: 1; }
   }
 
