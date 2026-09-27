@@ -25,6 +25,25 @@ sides is not a contract.
 
 `STATUS.md` and `README.md` are shared. Append, do not rewrite.
 
+### Stage by path. Never stage everything.
+
+**We share one working directory, not one checkout each.** `git add -A` and
+`git add .` sweep up whatever the other session has open, and a commit landed
+44 lines of unfinished frontend work under a backend commit message. Nothing
+was lost that time. The next time is a half-written file committed mid-edit,
+under someone else's message, and the person who wrote it never sees it happen.
+
+| Session | Stages |
+|---|---|
+| **backend** | `git add server tests scripts` (+ `STATUS.md`, `README.md`) |
+| **frontend** | `git add web docs/DESIGN-SYSTEM.md` (+ `STATUS.md`, `README.md`) |
+
+No `git add -A`. No `git add .`. No `git commit -a`. **A modified file outside
+your list is the other session typing, and it is not yours to commit.**
+
+If `git pull --rebase` refuses because the tree is dirty, that is the signal:
+look at what is modified before doing anything else.
+
 ## Working agreement
 
 - Small commits, often. Push every one.
