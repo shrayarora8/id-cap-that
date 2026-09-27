@@ -12,6 +12,8 @@
 <title>I'd cap that</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/app.css">
 </head>
@@ -24,7 +26,10 @@
 <div class="app">
 
   <header class="topbar">
-    <span class="wordmark">I'd cap that</span>
+    <span class="logo">
+      <span class="bars" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="wm" aria-label="I'd cap that"><b class="w1">I'd</b> <b class="w2">CAP</b> <b class="w3">That</b></span>
+    </span>
     <span class="tally" id="tally">
       <span class="tly" data-k="cap"   data-zero="1"><b id="t-cap">0</b> cap</span>
       <span class="tly" data-k="nocap" data-zero="1"><b id="t-nocap">0</b> no cap</span>
@@ -36,14 +41,19 @@
   <!-- The transcript is the product. Everything else is furniture. -->
   <main class="lyr" id="lyr" aria-live="off">
     <div class="cold" id="cold">
-      <h2>Say something checkable. I'll mark the words that aren't true.</h2>
-      <p>Tap the microphone, or try one of these — no microphone needed. Every
-         claim is checked against pages fetched from the live web.</p>
+      <h2>I listen, and I mark the words that aren't true.</h2>
+      <ol class="steps">
+        <li><span class="n">1</span><span>Tap <b>Listen</b> — or type a claim, no microphone needed</span></li>
+        <li><span class="n">2</span><span>Say something checkable</span></li>
+        <li><span class="n">3</span><span>Watch it get marked. <b class="cap">Red is a lie.</b></span></li>
+      </ol>
       <div class="egs">
-        <button class="eg" type="button" data-eg="Notion costs eight dollars per seat per month.">Notion costs $8 per seat per month.</button>
-        <button class="eg" type="button" data-eg="The Eiffel Tower is 324 metres tall.">The Eiffel Tower is 324 metres tall.</button>
-        <button class="eg" type="button" data-eg="Python was released in 1995.">Python was released in 1995.</button>
+        <button class="eg" type="button" data-eg="Notion costs eight dollars per seat per month.">Notion costs $8 a seat</button>
+        <button class="eg" type="button" data-eg="Mount Everest is 9,000 metres tall.">Everest is 9,000m</button>
+        <button class="eg" type="button" data-eg="The Nobel Prizes were first awarded in 1901.">Nobels began in 1901</button>
       </div>
+      <p class="hint">Every claim is checked against pages fetched from the live web,
+         so leave a couple of seconds between them.</p>
     </div>
   </main>
 

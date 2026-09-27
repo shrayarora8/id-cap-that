@@ -61,7 +61,7 @@
     align-items: center;
     gap: var(--sp-4);
     padding-top: calc(var(--sp-6) + var(--safe-top));
-    padding-bottom: var(--sp-2);
+    padding-bottom: var(--sp-4);
   }
 
   /* Two rows, not a wrapping flex line. The input used to take a whole row of
@@ -82,26 +82,57 @@
 
 @layer components {
 
-  /* --- top bar: as close to nothing as it can be ------------------------- */
-  .wordmark {
-    font-size: var(--fs-label);
-    font-weight: var(--fw-semi);
-    letter-spacing: var(--ls-label);
-    text-transform: uppercase;
-    color: var(--faint);
+  /* --- the mark -----------------------------------------------------------
+     Three bars in the three verdict colours, and the name set in the same
+     three. The bars are a tally: this is a product that counts things, and
+     the mark says so before a word is read. */
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    user-select: none;
   }
+  .bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: calc(var(--fs-logo) * 0.92);
+  }
+  .bars i {
+    display: block;
+    width: 4px;
+    border-radius: 2px;
+  }
+  .bars i:nth-child(1) { height: 58%;  background: var(--v-green); }
+  .bars i:nth-child(2) { height: 100%; background: var(--v-red); }
+  .bars i:nth-child(3) { height: 76%;  background: var(--v-amber); }
 
+  .wm {
+    font-family: var(--font-display);
+    font-size: var(--fs-logo);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .wm b { font-weight: 700; }
+  .wm .w1 { color: var(--v-green); }
+  .wm .w2 { color: var(--v-red); }
+  .wm .w3 { color: var(--v-amber); }
+
+  /* The tally reads as numerals, not as text. It is the one glance that tells
+     the story of a whole conversation. */
   .tally { margin-left: auto; display: flex; gap: var(--sp-5); align-items: baseline; }
   .tly {
     display: flex; align-items: baseline; gap: var(--sp-2);
-    font-size: var(--fs-label); font-weight: var(--fw-semi);
+    font-size: var(--fs-count-lbl); font-weight: var(--fw-semi);
     letter-spacing: var(--ls-label); text-transform: uppercase;
     color: var(--faint);
   }
   .tly b {
     font-family: var(--font-display);
-    font-size: var(--fs-num); font-weight: var(--fw-line);
-    letter-spacing: -0.01em;
+    font-size: var(--fs-count); font-weight: 700;
+    letter-spacing: -0.03em; line-height: 1;
   }
   .tly[data-k="cap"] b   { color: var(--v-red); }
   .tly[data-k="nocap"] b { color: var(--v-green); }
@@ -342,20 +373,51 @@
   .mute[aria-pressed="true"] { color: var(--live); border-color: var(--hair); }
 
   /* --- cold start: the screen a stranger lands on ------------------------ */
-  .cold { display: grid; gap: var(--sp-5); align-content: end; padding-bottom: var(--sp-6); }
+  /* The landing screen IS the explanation. A judge opening this cold on their
+     own phone has about ten seconds of patience and nobody to ask, so there is
+     nothing to dismiss and nothing between them and trying it. It disappears
+     the moment anything is said or typed. */
+  .cold { display: grid; gap: var(--sp-6); padding-bottom: var(--sp-6); }
+
+  /* Transcript lines grow up from the bottom, but the landing screen is not a
+     transcript -- bottom-aligning it leaves half an empty phone above the one
+     thing a new visitor is supposed to read. Centre it while it is showing. */
+  .lyr:has(.cold:not([hidden]))::before { margin-block-start: 0; }
+  .lyr:has(.cold:not([hidden])) .cold { margin-block: auto; }
   .cold h2 {
     margin: 0;
     font-family: var(--font-display);
-    font-size: var(--fs-line);
-    font-weight: var(--fw-line);
-    line-height: var(--lh-line);
-    letter-spacing: var(--ls-line);
-    color: var(--past);
+    font-size: clamp(24px, 5.6vw, 30px);
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.022em;
+    color: var(--live);
     text-wrap: balance;
+    max-width: 20ch;
   }
-  .cold p { margin: 0; font-size: var(--fs-body); line-height: 1.6; color: var(--faint); max-width: 46ch; }
+  .steps { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--sp-4); }
+  .steps li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--sp-4);
+    align-items: baseline;
+    font-size: var(--fs-body);
+    line-height: 1.5;
+    color: var(--past);
+  }
+  .steps .n {
+    font-family: var(--font-display);
+    font-size: var(--fs-label);
+    font-weight: 700;
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .steps b { color: var(--live); font-weight: var(--fw-semi); }
+  .steps b.cap { color: var(--v-red); }
+
   .egs { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
   .eg {
+    min-height: var(--tap);
     padding: var(--sp-3) var(--sp-5);
     border: 1px solid var(--hair);
     border-radius: var(--r-pill);
@@ -366,6 +428,7 @@
     transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
   }
   .eg:hover { color: var(--live); border-color: var(--past); }
+  .cold .hint { margin: 0; font-size: var(--fs-label); line-height: 1.6; color: var(--sunk); max-width: 44ch; }
 
   /* --- the evidence card -------------------------------------------------- */
   .card {

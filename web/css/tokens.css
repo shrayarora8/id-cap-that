@@ -81,19 +81,24 @@
   --alarm-fill: color-mix(in oklab, var(--field) 72%, var(--v-red));
 
   /* --- type ----------------------------------------------------------------
-     PLACEHOLDER. Design round 2 picks the real faces and they get
-     self-hosted as woff2 in web/fonts/. No CDN at runtime, ever. */
-  --font-display: system-ui, -apple-system, "SF Pro Display", "Segoe UI Variable Display",
+     Geist, agreed in design round 2. Loaded from Google Fonts for now; it
+     gets self-hosted as woff2 in web/fonts/ before the demo so there is no
+     third-party request at the venue. The fallback is the system stack, so a
+     blocked font costs nothing but character. */
+  --font-display: "Geist", system-ui, -apple-system, "SF Pro Display",
                   "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-ui:      system-ui, -apple-system, "SF Pro Text", "Segoe UI Variable Text",
+  --font-ui:      "Geist", system-ui, -apple-system, "SF Pro Text",
                   "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono:    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
                   "Liberation Mono", monospace;
 
   --fs-line:    clamp(27px, 6.4vw, 34px);  /* the transcript. The product. */
   --fs-tag:     clamp(11px, 1.3vw, 12px);  /* ABSOLUTE CAP beside the words */
+  --fs-logo:    clamp(18px, 4.8vw, 23px);  /* the wordmark. Branding, not a label. */
+  --fs-count:   clamp(21px, 5.4vw, 27px);  /* the tally numerals */
   --fs-status:  13px;
   --fs-label:   11px;
+  --fs-count-lbl: 10px;
   --fs-body:    14px;
   --fs-claim:   15px;
   --fs-num:     16px;
