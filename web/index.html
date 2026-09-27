@@ -34,26 +34,27 @@
       <span class="tly" data-k="cap"   data-zero="1"><b id="t-cap">0</b> cap</span>
       <span class="tly" data-k="nocap" data-zero="1"><b id="t-nocap">0</b> no cap</span>
     </span>
-    <span class="budget" id="budget"></span>
     <button id="mute" class="mute" type="button" aria-pressed="false" title="Sound off" aria-label="Sound on verdicts">♪</button>
   </header>
 
   <!-- The transcript is the product. Everything else is furniture. -->
   <main class="lyr" id="lyr" aria-live="off">
     <div class="cold" id="cold">
+      <button class="cold-x" id="cold-x" type="button" aria-label="Close the introduction">✕</button>
       <h2>I listen, and I mark the words that aren't true.</h2>
       <ol class="steps">
-        <li><span class="n">1</span><span>Tap <b>Listen</b> — or type a claim, no microphone needed</span></li>
+        <li><span class="n">1</span><span>Tap <b>Record</b> — or type a claim</span></li>
         <li><span class="n">2</span><span>Say something checkable</span></li>
         <li><span class="n">3</span><span>Watch it get marked. <b class="cap">Red is a lie.</b></span></li>
       </ol>
       <div class="egs">
-        <button class="eg" type="button" data-eg="Notion costs eight dollars per seat per month.">Notion costs $8 a seat</button>
-        <button class="eg" type="button" data-eg="Mount Everest is 9,000 metres tall.">Everest is 9,000m</button>
-        <button class="eg" type="button" data-eg="The Nobel Prizes were first awarded in 1901.">Nobels began in 1901</button>
+        <button class="eg" type="button" data-v="CONTRADICTED" data-eg="Notion costs eight dollars per seat per month.">Notion costs $8 a seat</button>
+        <button class="eg" type="button" data-v="PARTIALLY_SUPPORTED" data-eg="Tesla was founded by Elon Musk.">Tesla was founded by Elon Musk</button>
+        <button class="eg" type="button" data-v="SUPPORTED" data-eg="The Nobel Prizes were first awarded in 1901.">The Nobel Prizes began in 1901</button>
       </div>
       <p class="hint">Every claim is checked against pages fetched from the live web,
          so leave a couple of seconds between them.</p>
+      <span class="point" aria-hidden="true">↓</span>
     </div>
   </main>
 
@@ -64,7 +65,7 @@
     <span class="status" id="status" data-busy="0"><span class="rotor" id="rotor">◌</span><span id="stxt">not connected</span></span>
     <label for="say" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)">Type a claim to check</label>
     <input id="say" class="say" type="text" placeholder="type a claim instead" autocomplete="off" autocapitalize="sentences" enterkeyhint="send">
-    <button id="listen" class="listen" type="button" aria-pressed="false"><span class="dot"></span>Listen</button>
+    <button id="listen" class="listen" type="button" aria-pressed="false"><span class="dot"></span>Record</button>
   </footer>
 
 </div>

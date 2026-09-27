@@ -5,7 +5,7 @@ import * as ws from "./ws.js";
 import * as audio from "./audio.js";
 import * as sound from "./sound.js";
 import { state, apply } from "./state.js";
-import { render } from "./render.js";
+import { render, dismissCold } from "./render.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -59,7 +59,7 @@ function setListen(mode) {
   b.classList.toggle("starting", mode === "starting");
   b.disabled = mode === "starting";
   b.setAttribute("aria-pressed", String(mode === "on"));
-  listenLabel(mode === "on" ? "Stop" : mode === "starting" ? "Starting" : "Listen");
+  listenLabel(mode === "on" ? "Stop" : mode === "starting" ? "Starting" : "Record");
 }
 
 el("listen").addEventListener("click", async () => {
@@ -117,6 +117,11 @@ document.querySelectorAll(".eg").forEach((b) => {
   b.addEventListener("click", () => {
     ws.sendJSON({ type: "inject_text", text: b.dataset.eg });
   });
+});
+
+el("cold-x").addEventListener("click", () => {
+  dismissCold();
+  render();
 });
 
 // --- sound ------------------------------------------------------------------

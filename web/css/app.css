@@ -320,12 +320,13 @@
 
   .listen {
     display: flex; align-items: center; gap: var(--sp-3);
-    min-height: var(--tap);
-    padding: 0 var(--sp-5);
-    border: 2px solid var(--hair);
+    min-height: 52px;
+    padding: 0 var(--sp-6);
+    border: 2px solid var(--past);
     border-radius: var(--r-pill);
     background: none;
-    font-size: var(--fs-label);
+    color: var(--live);
+    font-size: var(--fs-body);
     font-weight: var(--fw-semi);
     letter-spacing: var(--ls-label);
     text-transform: uppercase;
@@ -338,6 +339,13 @@
     width: 7px; height: 7px; border-radius: 50%;
     background: var(--faint);
   }
+  .app:has(.cold:not([hidden])) .listen {
+    background: var(--live);
+    color: var(--field);
+    border-color: var(--live);
+  }
+  .app:has(.cold:not([hidden])) .listen .dot { background: var(--v-red); }
+
   .listen.starting { border-style: dashed; border-color: var(--past); color: var(--past); }
   .listen.starting .dot { animation: pulse var(--dur-base) var(--ease-soft) infinite; }
   .listen:disabled { cursor: progress; }
@@ -382,8 +390,8 @@
   /* Transcript lines grow up from the bottom, but the landing screen is not a
      transcript -- bottom-aligning it leaves half an empty phone above the one
      thing a new visitor is supposed to read. Centre it while it is showing. */
-  .lyr:has(.cold:not([hidden]))::before { margin-block-start: 0; }
-  .lyr:has(.cold:not([hidden])) .cold { margin-block: auto; }
+  .lyr.empty::before { margin-block-start: 0; }
+  .lyr.empty .cold { margin-block: auto; }
   .cold h2 {
     margin: 0;
     font-family: var(--font-display);
@@ -398,18 +406,18 @@
   .steps { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--sp-4); }
   .steps li {
     display: grid;
-    grid-template-columns: auto 1fr;
-    gap: var(--sp-4);
+    grid-template-columns: 1.6em 1fr;
+    gap: var(--sp-3);
     align-items: baseline;
-    font-size: var(--fs-body);
-    line-height: 1.5;
+    font-size: clamp(16px, 4.2vw, 18px);
+    line-height: 1.45;
     color: var(--past);
   }
   .steps .n {
     font-family: var(--font-display);
-    font-size: var(--fs-label);
+    font-size: clamp(16px, 4.2vw, 18px);
     font-weight: 700;
-    color: var(--faint);
+    color: var(--sunk);
     font-variant-numeric: tabular-nums;
   }
   .steps b { color: var(--live); font-weight: var(--fw-semi); }
@@ -428,7 +436,44 @@
     transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
   }
   .eg:hover { color: var(--live); border-color: var(--past); }
-  .cold .hint { margin: 0; font-size: var(--fs-label); line-height: 1.6; color: var(--sunk); max-width: 44ch; }
+  .cold .hint { margin: 0; font-size: var(--fs-body); line-height: 1.6; color: var(--sunk); max-width: 46ch; }
+
+  .cold { position: relative; }
+
+  /* Dismissed only when someone asks. It used to vanish the moment a claim
+     arrived, which took the instructions away from the person still reading
+     them. */
+  .cold-x {
+    position: absolute; top: 0; right: 0;
+    width: var(--tap); height: var(--tap);
+    display: grid; place-items: center;
+    border: 0; background: none; color: var(--sunk); font-size: 16px;
+  }
+  .cold-x:hover { color: var(--live); }
+
+  /* An example says what it expects to come back, on hover and on focus. The
+     colour is the point of the app stated before anything has happened. */
+  .eg[data-v] { transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease); }
+  .eg[data-v="CONTRADICTED"]:hover,
+  .eg[data-v="CONTRADICTED"]:focus-visible { color: var(--v-red); border-color: var(--v-red); }
+  .eg[data-v="SUPPORTED"]:hover,
+  .eg[data-v="SUPPORTED"]:focus-visible { color: var(--v-green); border-color: var(--v-green); }
+  .eg[data-v="PARTIALLY_SUPPORTED"]:hover,
+  .eg[data-v="PARTIALLY_SUPPORTED"]:focus-visible { color: var(--v-amber); border-color: var(--v-amber); }
+
+  /* Points at the Record button, which is directly below it on the right. */
+  .point {
+    justify-self: end;
+    margin-inline-end: var(--sp-7);
+    font-size: 26px;
+    line-height: 1;
+    color: var(--live);
+    animation: nudge 1400ms var(--ease-soft) infinite;
+  }
+  @keyframes nudge {
+    0%, 100% { transform: translateY(0);   opacity: .45; }
+    50%      { transform: translateY(7px); opacity: 1; }
+  }
 
   /* --- the evidence card -------------------------------------------------- */
   .card {

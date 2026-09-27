@@ -55,6 +55,7 @@ let relitTimers = new Map();
 let openCard = null;        // claim_id whose card is showing
 let startedAt = new Map();  // claim_id -> when we first saw it unresolved
 let cardSig = "";           // what the open card was last built from
+let coldDismissed = false;  // the introduction, closed by the reader only
 let ticker = null;
 let pinned = true;
 let unread = 0;
@@ -642,16 +643,6 @@ function paintChrome() {
   el("status").dataset.busy = busy ? "1" : "0";
   el("rotor").textContent = busy ? "◜" : "◌";
 
-  const b = state.budget;
-  const box = el("budget");
-  if (b.pool === "byok" || !b.claimsCap) {
-    box.textContent = "";
-  } else {
-    box.textContent = `${b.claimsLeft}/${b.claimsCap}`;
-    box.dataset.out = b.claimsLeft <= 0 ? "1" : "0";
-    box.title = `${b.claimsLeft} checks left in this session`;
-  }
-
   const err = el("error");
   if (state.error) {
     err.hidden = false;
@@ -692,8 +683,13 @@ export function render() {
   }
   lineSigs = sigs;
 
+  // The introduction is dismissed by the reader, never by the app. It used to
+  // disappear the moment a claim arrived, which removed the instructions from
+  // under the person who was still reading them -- and tapping an example is
+  // the most likely thing a new visitor does first.
   const cold = el("cold");
-  if (cold) cold.hidden = lines.length > 0 || Boolean(state.interim);
+  if (cold) cold.hidden = coldDismissed;
+  box.classList.toggle("empty", lines.length === 0 && !state.interim);
 
   paintInterim(closed);
   paintClaims();
@@ -717,6 +713,12 @@ export function render() {
     if (sigs.length !== lineSigsBefore) unread += 1;
   }
   paintJump();
+}
+
+export function dismissCold() {
+  coldDismissed = true;
+  const cold = el("cold");
+  if (cold) cold.hidden = true;
 }
 
 // --- one listener for the whole transcript, however much of it there is -----
