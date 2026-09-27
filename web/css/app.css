@@ -307,6 +307,9 @@
     width: 7px; height: 7px; border-radius: 50%;
     background: var(--faint);
   }
+  .listen.starting { border-style: dashed; border-color: var(--past); color: var(--past); }
+  .listen.starting .dot { animation: pulse var(--dur-base) var(--ease-soft) infinite; }
+  .listen:disabled { cursor: progress; }
   .listen.on { background: var(--live); color: var(--field); border-color: var(--live); }
   .listen.on .dot { background: var(--v-red); animation: pulse var(--dur-sweep) var(--ease-soft) infinite; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }

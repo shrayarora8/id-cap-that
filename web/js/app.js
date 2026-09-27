@@ -29,9 +29,8 @@ ws.connect({
   onClose: () => {
     state.status = "reconnecting…";
     state.listening = false;
-    el("listen").classList.remove("on");
-    el("listen").setAttribute("aria-pressed", "false");
-    listenLabel("Listen");
+    starting = false;
+    setListen("off");
     audio.stop();
     render();
   },
@@ -49,12 +48,25 @@ el("say").addEventListener("keydown", (ev) => {
 
 // --- the microphone ---------------------------------------------------------
 
+// A click must change the button on the click, not when the server answers.
+// Waiting on a Deepgram round trip left it looking dead for a second or two,
+// which is exactly how a user ends up pressing it four times.
+let starting = false;
+
+function setListen(mode) {
+  const b = el("listen");
+  b.classList.toggle("on", mode === "on");
+  b.classList.toggle("starting", mode === "starting");
+  b.disabled = mode === "starting";
+  b.setAttribute("aria-pressed", String(mode === "on"));
+  listenLabel(mode === "on" ? "Stop" : mode === "starting" ? "Starting" : "Listen");
+}
+
 el("listen").addEventListener("click", async () => {
+  if (starting) return;            // a second click while the mic is opening
   if (state.listening) {
     state.listening = false;
-    el("listen").classList.remove("on");
-    el("listen").setAttribute("aria-pressed", "false");
-    listenLabel("Listen");
+    setListen("off");
     await audio.stop();
     ws.sendJSON({ type: "stop_listening" });
     return;
@@ -71,21 +83,31 @@ el("listen").addEventListener("click", async () => {
     return;
   }
 
+  // Feedback first, work second.
+  starting = true;
+  setListen("starting");
+  state.status = "opening the microphone…";
+  render();
+
   // Order matters: the server must have a Deepgram socket open before the
   // first audio frame arrives, or those frames are dropped on the floor.
   ws.sendJSON({ type: "start_listening" });
 
   try {
-    const rate = await audio.start((buf) => ws.sendBinary(buf));
+    // audio.start now reports WHICH microphone it opened. Showing it is the
+    // fix for a real confusion: on a Mac with an iPhone nearby, macOS hands
+    // the browser the phone, the laptop's own mic is never heard, and nothing
+    // on screen says so.
+    const { label } = await audio.start((buf) => ws.sendBinary(buf));
     state.listening = true;
-    el("listen").classList.add("on");
-    el("listen").setAttribute("aria-pressed", "true");
-    listenLabel("Stop");
-    state.status = `listening at ${rate} Hz`;
+    setListen("on");
+    state.status = `listening · ${label}`;
   } catch (err) {
+    setListen("off");
     state.status = `microphone blocked: ${err.message}`;
     ws.sendJSON({ type: "stop_listening" });
   }
+  starting = false;
   render();
 });
 
