@@ -23,8 +23,12 @@ from .chunker import Chunker, Window
 from .judge import judge_claim
 from .llm import BudgetExceeded
 from .prefilter import worth_checking
-from .retrieval import credits_used, deepen, search, snippets_as_evidence
+from .retrieval import (
+    credits_used, deepen, recall, remember, remembered_count, search,
+    snippets_as_evidence,
+)
 from .session import Session
+from .sources import Passage
 from .sorter import find_claims
 from .spans import locate
 from .transcribe import DeepgramRelay
@@ -427,15 +431,34 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
         leg = time.monotonic()
         status("searching", f"searching {claim.official_domain or 'the web'}")
 
-        hits = await search(
-            claim.search_query or claim.normalized,
-            claim.normalized,
-            claim.official_domain,
-            lambda msg: status("searching", msg),
-        )
-        leg = mark("search", leg)
+        # Ask what we have already read before paying to read more. A Moss
+        # query is in-process and takes milliseconds; a Firecrawl search takes
+        # well over a second and a credit. A hit saves both; a miss costs a
+        # few hundred milliseconds, and is hard-timed so it can never become
+        # the slow part.
+        hits = []
+        evidence = await recall(claim.normalized)
 
-        evidence = snippets_as_evidence(hits)
+        if evidence:
+            status("searching", "recognised this from what it has already read")
+            leg = mark("recall", leg)
+        else:
+            hits = await search(
+                claim.search_query or claim.normalized,
+                claim.normalized,
+                claim.official_domain,
+                lambda msg: status("searching", msg),
+            )
+            leg = mark("search", leg)
+            evidence = snippets_as_evidence(hits)
+
+            # Keep what we just read, so the next related claim can skip all
+            # of this. Spawned rather than awaited: it must not delay a
+            # verdict that is already decided.
+            session.spawn(remember([
+                Passage(text=e.text, url=e.url, title=e.title, tier=e.tier)
+                for e in evidence
+            ]))
         # Sent the moment we have it, thin or not: sources appearing before
         # the verdict is what makes the wait feel like work happening.
         send_evidence(session, claim_id, evidence, "snippets")
@@ -487,6 +510,10 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
             return
 
         send_evidence(session, claim_id, evidence, "pages")
+        session.spawn(remember([
+            Passage(text=e.text, url=e.url, title=e.title, tier=e.tier)
+            for e in evidence
+        ]))
         status("judging", f"weighing {len(evidence)} passage(s)")
         judgement, checks = await judge_claim(claim.normalized, evidence, claim.shape)
         mark("rejudge", leg)
@@ -546,6 +573,8 @@ def log_result(claim_id: str, judgement, checks: list[dict], timings: dict) -> N
         " ".join(f"{k}={v}ms" for k, v in timings.items()),
         "; ".join(c["code"] for c in checks) or "clean",
         credits_used(),
+    )
+    log.debug("moss holds %d passage(s)", remembered_count()
     )
 
 

@@ -409,6 +409,119 @@ async def rank_passages(claim: str, passages: list[Passage]) -> list[Evidence]:
 
 _moss_session_obj = None
 _moss_lock = asyncio.Lock()
+_moss_docs = 0          # how much we have remembered this run
+
+
+def remembered_count() -> int:
+    return _moss_docs
+
+
+async def remember(passages: list[Passage]) -> None:
+    """Put everything we read into Moss, so a later claim can reuse it.
+
+    This is what makes recall possible at all. It runs after a verdict has
+    already been sent, so it is never on the critical path.
+    """
+    global _moss_docs
+    if not config.MOSS_ENABLED or not passages:
+        return
+    try:
+        from moss import DocumentInfo, MossClient
+
+        session = await _moss_session(MossClient)
+        await session.add_docs([
+            DocumentInfo(
+                id=hashlib.sha1(f"{p.url}#{i}#{p.text[:60]}".encode()).hexdigest()[:20],
+                text=p.text,
+                metadata={"url": p.url, "title": p.title, "tier": str(p.tier)},
+            )
+            for i, p in enumerate(passages)
+        ])
+        _moss_docs += len(passages)
+        log.info("moss: remembered %d passage(s), %d held", len(passages), _moss_docs)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("moss could not remember: %s", exc)
+
+
+async def recall(claim: str) -> list[Evidence]:
+    """Ask Moss whether we already hold passages that answer this claim.
+
+    Returns [] unless the match is strong enough to trust without searching.
+    Deliberately strict: a wrong shortcut costs a wrong verdict, and a right
+    one only saves about a second and one Firecrawl credit.
+
+    Hard-timed, because this is an optimisation and an optimisation that
+    becomes the slow part has failed at its only job.
+    """
+    if not config.MOSS_ENABLED or _moss_docs < config.MOSS_MIN_HITS:
+        return []
+
+    started = time.monotonic()
+    try:
+        from moss import MossClient, QueryOptions
+
+        session = await _moss_session(MossClient)
+        result = await asyncio.wait_for(
+            session.query(claim, QueryOptions(top_k=config.PASSAGES_FOR_JUDGE)),
+            timeout=config.MOSS_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        log.info("moss recall timed out, searching instead")
+        return []
+    except Exception as exc:  # noqa: BLE001
+        log.warning("moss recall failed: %s", exc)
+        return []
+
+    strong = [d for d in result.docs if getattr(d, "score", 0) >= config.MOSS_MIN_SCORE]
+    took = (time.monotonic() - started) * 1000
+
+    # A similarity score is not a subject check, and trusting it alone was a
+    # mistake with teeth: asked whether the Danube flows through Vienna, Moss
+    # confidently returned five passages about the Amazon, all above
+    # threshold, and the claim was answered from them WITHOUT searching. That
+    # is worse than having no memory at all -- a wrong shortcut costs a wrong
+    # verdict, while a right one only saves a second.
+    #
+    # So a remembered passage must also NAME what the claim is about. Nothing
+    # is reused on similarity alone.
+    from .judge import claim_names
+
+    names = claim_names(claim)
+    if names:
+        strong = [
+            d for d in strong
+            if any(
+                n in f"{(d.metadata or {}).get('title', '')} {d.text}".lower()
+                for n in names
+            )
+        ]
+    else:
+        # A claim that names nothing cannot be matched safely against memory.
+        strong = []
+
+    if len(strong) < config.MOSS_MIN_HITS:
+        log.info(
+            "moss: %d of %d passage(s) were about this claim in %.0fms -- searching",
+            len(strong), len(result.docs), took,
+        )
+        return []
+
+    log.info("moss: answered from memory, %d passage(s) in %.0fms", len(strong), took)
+    evidence = [
+        Evidence(
+            evidence_id=f"E{i + 1}",
+            text=doc.text,
+            url=(doc.metadata or {}).get("url", ""),
+            title=(doc.metadata or {}).get("title", ""),
+            tier=int((doc.metadata or {}).get("tier", 3)),
+            score=doc.score,
+        )
+        for i, doc in enumerate(strong)
+    ]
+    evidence.sort(key=lambda e: (e.tier, -e.score))
+    for n, e in enumerate(evidence, 1):
+        e.evidence_id = f"E{n}"
+    return evidence
 
 
 async def _moss_session(MossClient):

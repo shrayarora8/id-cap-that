@@ -112,6 +112,29 @@ FIRECRAWL_PER_MINUTE = 10
 # hang, and the demo is the product.
 MAX_RATE_LIMIT_WAIT_S = 6.0
 
+# --- Moss: what we have already read ------------------------------------
+# Every passage we ever fetch goes into a Moss index and stays there. Before
+# spending a Firecrawl request, a new claim asks Moss whether we already hold
+# something that answers it.
+#
+# The rule this lives under is Shray's, and it is the right one: this must
+# make things FASTER, never slower. A Moss query is in-process and takes
+# milliseconds; a Firecrawl search takes well over a second. So a hit saves
+# about a second and a credit, and a miss costs a few hundred milliseconds.
+# The threshold is set high enough that a miss is the common outcome early in
+# a session and a hit only happens when the passages genuinely match.
+MOSS_ENABLED = True
+# A remembered passage must score at least this to be trusted without a fresh
+# search. Moss scores are cosine-like; this is deliberately strict, because a
+# wrong shortcut costs a wrong verdict and a right one only saves a second.
+MOSS_MIN_SCORE = 0.62
+# ...and we need at least this many of them, so one lucky match cannot
+# replace a search on its own.
+MOSS_MIN_HITS = 3
+# If Moss has not answered in this long, stop waiting and just search. It is
+# an optimisation; it is never allowed to become the slow part.
+MOSS_TIMEOUT_S = 1.2
+
 # How many times one claim may escalate before we accept the evidence we have.
 MAX_ESCALATIONS = 1
 

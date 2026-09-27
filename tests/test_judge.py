@@ -435,3 +435,35 @@ def test_a_nameless_claim_cannot_be_rescued_by_a_matching_title():
         [Citation(evidence_id="E1", quote="x")],
         evidence,
     )
+
+
+def test_refuting_evidence_need_not_contain_the_wrong_entity():
+    """The bug this pins. "The Great Barrier Reef is off the coast of New
+    Zealand" was answered by a passage saying Queensland, Australia. New
+    Zealand appears nowhere in it -- because New Zealand is the error. The
+    entity rail fired and a correct ABSOLUTE CAP became COULD BE CAP, on a
+    card that already said "not New Zealand" in its own summary.
+
+    Evidence that refutes a claim cannot contain the wrong part of it."""
+    evidence = [ev("E1", "The Great Barrier Reef is located off the coast of Queensland, Australia.")]
+    j = judgement(
+        verdict="CONTRADICTED",
+        citations=[Citation(evidence_id="E1", quote="The Great Barrier Reef is located off the coast of Queensland")],
+    )
+    result, _ = apply_guard_rails(
+        j, evidence, "The Great Barrier Reef is off the coast of New Zealand.", shape="other"
+    )
+    assert result.verdict == "CONTRADICTED"
+
+
+def test_confirming_evidence_still_needs_every_name():
+    """The case the rail was built for must still be caught: a Zendaya
+    article must not satisfy a claim about Taylor Swift."""
+    evidence = [ev("E1", "Zendaya and Tom Holland confirmed they are in a romantic relationship.")]
+    j = judgement(
+        verdict="SUPPORTED",
+        citations=[Citation(evidence_id="E1", quote="Zendaya and Tom Holland confirmed they are in a romantic relationship")],
+    )
+    result, notes = apply_guard_rails(j, evidence, "Taylor Swift dated Tom Holland.", shape="other")
+    assert result.verdict == "INSUFFICIENT_EVIDENCE"
+    assert any(c["code"] == "entities_missing" for c in notes)

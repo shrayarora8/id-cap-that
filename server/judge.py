@@ -603,9 +603,33 @@ def apply_guard_rails(
         judgement.verdict = "INSUFFICIENT_EVIDENCE"
         judgement.citations = []
 
-    # A claim about two named things needs both of them on the page.
-    if claim_text and judgement.verdict in NEEDS_CITATION and not evidence_names_everyone_in_the_claim(
-        claim_text, judgement.citations, evidence
+    # A claim about two named things needs both of them on the page -- but
+    # ONLY when the verdict CONFIRMS the claim.
+    #
+    # The asymmetry is the whole point, and missing it cost a correct verdict.
+    # SUPPORTED means "the evidence says this is true", so the evidence had
+    # better be about everything the claim names. CONTRADICTED means "the
+    # evidence says otherwise", and evidence that refutes a claim CANNOT
+    # contain the wrong part of it -- that absence is exactly what makes it a
+    # refutation.
+    #
+    # "The Great Barrier Reef is off the coast of New Zealand" was answered by
+    # a passage saying Queensland, Australia. New Zealand appears nowhere in
+    # it, because New Zealand is the error. This rail fired and threw a
+    # correct ABSOLUTE CAP away.
+    #
+    # Same mistake as requiring the claim's number to appear in evidence that
+    # exists to contradict that number. Fixed there, left standing here.
+    #
+    # The case this rail was built for -- a Zendaya article satisfying "Taylor
+    # Swift dated Tom Holland" -- was a SUPPORTED verdict, so it is still
+    # caught.
+    if (
+        claim_text
+        and judgement.verdict == "SUPPORTED"
+        and not evidence_names_everyone_in_the_claim(
+            claim_text, judgement.citations, evidence
+        )
     ):
         missing = ", ".join(sorted(named_entities(claim_text)))
         note("entities_missing", f"no passage mentioned all of: {missing}")

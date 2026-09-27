@@ -309,3 +309,30 @@ def test_every_exit_from_check_claim_sends_a_terminal_message():
         assert _re.search(r"send_verdict\(|claim_error\(", tail), (
             f"return #{i + 1} in check_claim exits without a verdict or an error"
         )
+
+
+# --- Moss recall ------------------------------------------------------------
+
+
+def test_moss_recall_is_gated_on_the_subject_not_just_similarity():
+    """The bug this pins, measured live. Asked whether the Danube flows
+    through Vienna, Moss confidently returned five passages about the Amazon,
+    every one above the similarity threshold, and the claim was answered from
+    them without searching at all.
+
+    A similarity score is not a subject check. A wrong shortcut costs a wrong
+    verdict; a right one only saves about a second. So a remembered passage
+    must also NAME what the claim is about.
+    """
+    from server import config
+    from server.judge import claim_names
+
+    amazon = "the amazon river flows through brazil into the atlantic ocean."
+
+    danube = claim_names("The Danube flows through Vienna.")
+    assert danube and not any(n in amazon for n in danube), "must not reuse"
+
+    same = claim_names("The Amazon River is 6400 kilometres long.")
+    assert any(n in amazon for n in same), "the same subject must still be reused"
+
+    assert config.MOSS_TIMEOUT_S <= 2.0, "recall must never become the slow part"
