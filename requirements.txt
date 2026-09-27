@@ -1,3 +1,7 @@
+# Runtime only. Anything needed just for local development or for a script
+# goes in requirements-dev.txt, so a deploy does not build packages it will
+# never import -- Pillow in particular compiles, and a slow or failed build on
+# the day is not a risk worth taking for a QR code generator.
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 python-dotenv==1.0.1
@@ -5,6 +9,3 @@ websockets==14.1
 httpx==0.28.1
 anthropic
 moss
-pytest==9.1.1
-pytest-asyncio
-qrcode[pil]

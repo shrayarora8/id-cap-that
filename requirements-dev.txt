@@ -1,0 +1,8 @@
+-r requirements.txt
+
+# Tests
+pytest==9.1.1
+pytest-asyncio
+
+# scripts/qr.py only
+qrcode[pil]
