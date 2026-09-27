@@ -59,3 +59,31 @@ async def test_concurrent_callers_do_not_all_blow_the_limit_together():
     await asyncio.gather(*(limiter.acquire() for _ in range(3)))
     assert limiter.available == 0
     assert len(limiter._taken) == 3
+
+
+def test_the_wait_ceiling_is_long_enough_for_an_ordinary_queue():
+    """The bug this pins: reading a transcript at pace produces claims faster
+    than ten requests a minute, so a seven-second queue is ordinary. Giving
+    up at six meant "Stripe has 8,000 employees" came back with no sources on
+    a run where every other claim worked.
+
+    An answer after ten seconds is worth far more than no answer after six.
+    """
+    from server import config
+
+    assert config.MAX_RATE_LIMIT_WAIT_S >= 15
+    # ...but still bounded. The failure this replaced was a claim stalling
+    # silently for most of a minute.
+    assert config.MAX_RATE_LIMIT_WAIT_S <= 30
+
+
+async def test_acquire_raises_rather_than_waiting_past_the_ceiling(monkeypatch):
+    from server.ratelimit import RateLimited
+
+    limiter = RateLimiter(per_minute=1)
+    now = [100.0]
+    monkeypatch.setattr("server.ratelimit.time.monotonic", lambda: now[0])
+    limiter._taken.append(100.0)
+
+    with pytest.raises(RateLimited):
+        await limiter.acquire(max_wait=5.0)

@@ -201,7 +201,12 @@ async def search(query: str, claim: str, official_domain: str = "", on_status=No
     )
 
     hits: list[Hit] = list(guesses)
+    rate_limited = False
     for batch in results:
+        if isinstance(batch, RateLimited):
+            rate_limited = True
+            log.warning("one search leg failed: %s", batch)
+            continue
         if isinstance(batch, Exception):
             log.warning("one search leg failed: %s", batch)
             continue
@@ -219,6 +224,14 @@ async def search(query: str, claim: str, official_domain: str = "", on_status=No
 
     unique.sort(key=lambda h: h.tier)
     log.info("search %r -> %s", query, [f"{h.tier}:{h.url[:44]}" for h in unique[:6]])
+
+    # Finding nothing because we never looked is not the same as finding
+    # nothing because the web had nothing, and telling a user "no sources were
+    # found" when we never made the request is simply false. It also reads as
+    # a broken checker rather than a busy one.
+    if not unique and rate_limited:
+        raise RateLimited("the search rate limit was busy for too long")
+
     return unique
 
 

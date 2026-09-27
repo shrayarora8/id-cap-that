@@ -107,10 +107,17 @@ MAX_PAGE_CHARS = 60_000
 # real limit for no reason.
 FIRECRAWL_PER_MINUTE = 10
 
-# Waiting longer than this for a slot is worse than answering without the
-# extra source. A claim that takes a minute is not a fact-checker, it is a
-# hang, and the demo is the product.
-MAX_RATE_LIMIT_WAIT_S = 6.0
+# How long to wait for a Firecrawl slot before giving up on a claim.
+#
+# Six seconds was too impatient. Reading a transcript at pace produces claims
+# faster than ten requests a minute, so a queue of seven seconds is ordinary
+# -- and giving up at six meant "Stripe has 8,000 employees" came back with
+# no sources at all, on a run where every other claim worked. An answer after
+# ten seconds is worth far more than no answer after six.
+#
+# It is still bounded, because the failure this replaced was a claim silently
+# stalling for most of a minute.
+MAX_RATE_LIMIT_WAIT_S = 20.0
 
 # --- Moss: what we have already read ------------------------------------
 # Every passage we ever fetch goes into a Moss index and stays there. Before

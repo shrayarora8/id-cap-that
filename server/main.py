@@ -23,6 +23,7 @@ from .chunker import Chunker, Window
 from .judge import judge_claim
 from .llm import BudgetExceeded
 from .prefilter import worth_checking
+from .ratelimit import RateLimited
 from .retrieval import (
     credits_used, deepen, recall, remember, remembered_count, search,
     snippets_as_evidence,
@@ -560,6 +561,15 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
         )
         log_result(claim_id, judgement, checks, timings)
 
+    except RateLimited:
+        # Honest, and different from "we looked and found nothing".
+        session.send(
+            messages.claim_error(
+                claim_id, "rate_limit",
+                "too many checks at once for the free search tier -- "
+                "leave a few seconds between claims",
+            )
+        )
     except BudgetExceeded as exc:
         session.send(messages.claim_error(claim_id, "budget", str(exc)))
     except Exception as exc:  # noqa: BLE001
