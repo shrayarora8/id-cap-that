@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config, messages
 from .chunker import Chunker, Window
 from .judge import judge_claim
+from . import ledger
 from .llm import BudgetExceeded
 from .prefilter import worth_checking
 from .ratelimit import RateLimited
@@ -97,7 +98,11 @@ app = FastAPI(title="i'd cap that")
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "protocol": messages.PROTOCOL_VERSION}
+    return {
+        "ok": True,
+        "protocol": messages.PROTOCOL_VERSION,
+        "demo_budget": ledger.summary(),
+    }
 
 
 @app.get("/")
@@ -418,6 +423,20 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
     for itself whether it has enough, but the control flow stays ours, so the
     latency and the spend are both bounded.
     """
+    # A visitor cannot spend past the month's ceiling. The demo machine is on
+    # loopback and is never blocked by this, which is the entire point: a room
+    # full of people trying it must not leave the demo unable to run.
+    if session.pool == "public" and ledger.public_exhausted():
+        session.send(
+            messages.claim_error(
+                claim_id, "budget",
+                "the shared demo budget for this month is used up -- "
+                "add your own keys to keep going",
+            )
+        )
+        return
+
+    credits_before = credits_used()
     started = time.monotonic()
     timings: dict[str, int] = {}
 
@@ -513,6 +532,7 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
 
         if deep_enough:
             log_result(claim_id, judgement, checks, timings)
+            note_spend(session, credits_before)
             return
 
         # The judge asked to read further. This is the only path that costs
@@ -544,6 +564,7 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
                 started=started, timings=timings,
             )
             log_result(claim_id, judgement, checks, timings)
+            note_spend(session, credits_before)
             return
 
         send_evidence(session, claim_id, evidence, "pages")
@@ -560,6 +581,8 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
             started=started, timings=timings,
         )
         log_result(claim_id, judgement, checks, timings)
+
+        note_spend(session, credits_before)
 
     except RateLimited:
         # Honest, and different from "we looked and found nothing".
@@ -610,6 +633,15 @@ def send_verdict(
             confidence=judgement.confidence,
         )
     )
+
+
+def note_spend(session: Session, credits_before: int) -> None:
+    """Count what this claim cost, but only when a visitor paid for it."""
+    if session.pool != "public":
+        return
+    spent = credits_used() - credits_before
+    if spent > 0:
+        ledger.record_public_spend(spent)
 
 
 def log_result(claim_id: str, judgement, checks: list[dict], timings: dict) -> None:

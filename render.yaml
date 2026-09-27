@@ -1,0 +1,44 @@
+# Deploy to Render: a permanent https URL that outlives your laptop.
+#
+# Netlify and Vercel cannot host this. They serve static files and
+# short-lived functions; this app holds a WebSocket open for the whole
+# conversation while it streams audio to Deepgram. Render, Railway and Fly
+# can all do that. Render is here because it has a free tier and deploys
+# straight from GitHub.
+#
+#   1. render.com -> New -> Blueprint -> pick the id-cap-that repo
+#   2. paste the five keys when it asks (they are NOT in this file)
+#   3. it builds and gives you a permanent https URL
+#
+# The free tier sleeps after about 15 minutes idle and takes ~30s to wake, so
+# a judge opening the link cold waits. Keep the Cloudflare tunnel as the live
+# demo path and use this for the QR code and for people trying it later.
+
+services:
+  - type: web
+    name: id-cap-that
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # One worker on purpose. Sessions, the Moss index and the rate limiter are
+    # all per-process, so a second worker would quietly double our Firecrawl
+    # rate and halve the value of the caches.
+    startCommand: uvicorn server.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: FIRECRAWL_API_KEY
+        sync: false
+      - key: MOSS_PROJECT_ID
+        sync: false
+      - key: MOSS_PROJECT_KEY
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
+      # Recording every visitor's session to disk is not something to do on a
+      # public host without a reason.
+      - key: RECORD_SESSIONS
+        value: "0"

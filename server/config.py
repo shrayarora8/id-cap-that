@@ -148,6 +148,19 @@ MAX_ESCALATIONS = 1
 # --- budget -----------------------------------------------------------------
 # Three pools. The reserved one exists so that visitors poking at the demo can
 # never starve the demo itself ten minutes before it is presented.
+# The total Firecrawl credits VISITORS may spend, ever, this month.
+#
+# The per-session cap below resets on every reconnect, so on its own it stops
+# nobody: refresh the page and you get a fresh allowance. This is the ceiling
+# that actually holds, it is counted on disk so a restart does not forget it,
+# and it covers visitors only. The demo machine is on loopback and spends from
+# its own reserve, so a room full of people trying it can never leave the demo
+# itself unable to run.
+#
+# CHANGE THIS ONE NUMBER to decide how much of the month's allowance other
+# people are allowed to use.
+PUBLIC_CREDIT_CEILING = 300
+
 CLAIMS_PER_PUBLIC_SESSION = 12
 CLAIMS_PER_RESERVED_SESSION = 200
 MAX_LLM_CALLS_PER_SESSION = 120
