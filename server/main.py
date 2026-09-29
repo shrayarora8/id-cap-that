@@ -26,8 +26,8 @@ from .llm import BudgetExceeded
 from .prefilter import worth_checking
 from .ratelimit import RateLimited
 from .retrieval import (
-    credits_used, deepen, free_evidence, recall, remember, remembered_count,
-    search, snippets_as_evidence, worth_judging,
+    credits_used, deepen, free_evidence, keep_claim, recall, recall_claim,
+    remember, remembered_count, search, snippets_as_evidence, worth_judging,
 )
 from .session import Session
 from .sources import Passage
@@ -460,10 +460,28 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
         evidence = []
         from_free = False
 
+        # Have we answered THIS question before? Not "have we read this page"
+        # -- the page cache already did that, and it saved a fetch while every
+        # other leg ran again anyway. This skips the lot.
+        #
+        # The judge still runs. Its prompt contains these exact passages, so
+        # its own cache hits and it costs nothing, but the guard rails re-run
+        # in code over the answer, which is the point: a repeat claim is
+        # re-verified, not replayed.
+        from_claim_cache = False
+        if config.CLAIM_CACHE:
+            evidence = await recall_claim(claim.normalized)
+            if evidence:
+                from_claim_cache = True
+                status("searching", "already checked this one")
+                leg = mark("claim_cache", leg)
+                send_evidence(session, claim_id, evidence, "snippets")
+                log.info("claim %s: answered from the claim cache", claim_id)
+
         # What we can reach without paying, first. Wikipedia and the subject's
         # own site, in parallel, measured at 229ms against ~1300ms and a credit
         # for a search. Ten new claims settled ten of ten from these alone.
-        if config.FREE_SOURCES_FIRST:
+        if config.FREE_SOURCES_FIRST and not from_claim_cache:
             evidence = await free_evidence(claim, status)
             if evidence and not worth_judging(evidence):
                 # Too thin to be worth a judge call. Deciding that here rather
@@ -478,7 +496,7 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
 
         if not evidence:
             evidence = await recall(claim.normalized)
-        from_memory = bool(evidence) and not from_free
+        from_memory = bool(evidence) and not from_free and not from_claim_cache
 
         if from_memory:
             status("searching", "recognised this from what it has already read")
@@ -551,6 +569,9 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
         )
 
         if deep_enough:
+            if not from_claim_cache:
+                session.spawn(keep_claim(
+                    claim.normalized, evidence, claim.kind, claim.shape))
             log_result(claim_id, judgement, checks, timings)
             note_spend(session, credits_before)
             return

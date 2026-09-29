@@ -216,6 +216,19 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 # for both in parallel, against ~1300ms and a credit for a search. Ten new
 # claims settled ten of ten from these alone.
 FREE_SOURCES_FIRST = True
+
+# Answer the same question twice without doing the work twice.
+#
+# The page cache only ever stopped a second FETCH. An identical claim still ran
+# both model calls and the whole search path, which is why the database looked
+# like it was doing nothing. This remembers the evidence a claim was settled
+# on, so a repeat skips every network leg -- and the judge's cache hits too,
+# because its prompt contains those passages byte for byte.
+#
+# Verdicts are NOT stored. Guard rails run in code after the model answers, so
+# a repeat claim is re-verified rather than replayed, and fixing a rail
+# retroactively corrects everything already cached.
+CLAIM_CACHE = True
 FREE_SOURCE_TIMEOUT_S = 6.0
 # Below this many passages, the free sources have not found enough to be worth
 # a judge call, so we go straight to search instead of paying to be told so.

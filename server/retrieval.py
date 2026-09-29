@@ -31,12 +31,12 @@ import hashlib
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Callable
 
 import httpx
 
-from . import config
+from . import config, store
 from .ratelimit import RateLimited, RateLimiter
 from .sources import Passage, canonical, chunk_page, preselect, tier_for
 
@@ -677,3 +677,56 @@ def worth_judging(evidence: list[Evidence]) -> bool:
     either path.
     """
     return len(evidence) >= config.FREE_EVIDENCE_MIN_PASSAGES
+
+
+# --- the claim cache --------------------------------------------------------
+# The page cache stops us FETCHING the same page twice. It does nothing about
+# asking the same question twice: an identical claim still ran the sorter, the
+# free legs, the search and the judge from scratch, which is why the database
+# was invisible from the outside.
+#
+# This stores the evidence a claim was settled on, keyed by the claim itself.
+# A repeat claim then skips every network leg -- and because the judge's prompt
+# CONTAINS those passages byte for byte, the judge's own cache hits too, so the
+# second model call disappears as well.
+#
+# Deliberately not stored: the verdict. Guard rails run in code, after the
+# model answers, so a replayed claim is re-verified rather than replayed
+# blindly -- fixing a guard rail retroactively corrects every cached claim
+# instead of freezing the bug in place.
+
+CLAIM_MEMORY = "claim"
+
+
+def claim_key(normalized: str) -> str:
+    """Same question asked twice should hit, whatever the spacing or case."""
+    return " ".join((normalized or "").lower().split())
+
+
+async def recall_claim(normalized: str) -> list[Evidence]:
+    """The evidence an identical claim was settled on, if it is still fresh."""
+    rows = await store.get(CLAIM_MEMORY, claim_key(normalized))
+    if not rows:
+        return []
+    out: list[Evidence] = []
+    for r in rows:
+        try:
+            out.append(Evidence(**r))
+        except TypeError:
+            # A row written by an older shape. Ignore it and re-earn it.
+            return []
+    return out
+
+
+async def keep_claim(
+    normalized: str, evidence: list[Evidence], kind: str = "", shape: str = ""
+) -> None:
+    """Remember what settled this claim, with a lifetime that suits its type."""
+    if not evidence:
+        return
+    await store.put(
+        CLAIM_MEMORY,
+        claim_key(normalized),
+        [asdict(e) for e in evidence],
+        ttl=store.ttl_for(kind or "", shape or ""),
+    )
