@@ -175,6 +175,38 @@ cold check measures around 9s and the judge alone has taken 6.5s. The floor is
 applied from the ticker as well as from the message loop, because on a silent
 screen nothing else will run.
 
+### 10. The verdict shows, then gets out of the way · agreed
+
+> *"the absolute cap, no cap, looks fucking terrible on the side, and it should
+> just show and disappear"*
+
+The inline label is gone. It competed with the transcript for space, and where
+a claim ended mid-line it landed in the middle of a sentence. The verdict now
+takes the **whole field** for about 1.7 seconds and then clears; the words keep
+their colour and their strike as the quiet marker, and a tap opens the card.
+
+This removes the placement problem rather than tuning it, because the verdict
+stops sharing space with the text at all.
+
+Only work and failure still label themselves inline. Progress has to be
+readable where the eye already is — that inline counter is what exposed a
+54-second stall — and a failed check needs explaining rather than announcing.
+
+**Late verdicts: anchored to the claim.** Verdicts arrive out of order — a
+claim from eight seconds ago can resolve after two newer ones. The moment
+fires **only while the claim's words are still on screen.** A full-field
+ABSOLUTE CAP for a sentence that scrolled away is a verdict with no referent:
+the reader cannot see what it is about, and it reads as random. When the words
+are gone the mark still lands on them, and the `n new · 1 cap` pill is what
+brings the reader back.
+
+At most two moments queue. Past that they stop being moments and become a
+slideshow.
+
+It is animated from `render.js` with the Web Animations API rather than from a
+stylesheet, so the element has one source of truth for its opacity and the end
+of the moment is an event rather than a timeout hoping to agree with CSS.
+
 ### Still to take
 
 Video frame · lyric emphasis · the verdict mark · type · the other four

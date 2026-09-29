@@ -319,10 +319,16 @@ function paintClaims() {
     }
 
     const last = marks[marks.length - 1];
+    // The verdict label no longer sits beside the words. It competed with the
+    // transcript for space, and where a claim ended mid-line it landed in the
+    // middle of a sentence. The verdict takes the whole field for a moment
+    // instead, and the words keep the colour and the strike as their marker.
+    // Only work and failure still label themselves inline: progress needs to
+    // be readable where the eye already is, and a failure needs explaining.
     const kind = checking ? "work" : "verdict";
     const label = checking
       ? workLabel(c)
-      : (c.sticker || c.verdict || (stalled ? "NO ANSWER" : ""));
+      : (errored ? (c.sticker || (stalled ? "NO ANSWER" : "")) : "");
 
     // A claim almost never includes the sentence's full stop, so without this
     // the label lands between the words and their punctuation: "...per month
@@ -452,6 +458,67 @@ function paintInterim(closed) {
 
 const LOUD = new Set(["CONTRADICTED", "SUPPORTED"]);
 
+// A verdict shows itself over the field and then clears. One at a time, with
+// a gap, so two landing together do not stamp on each other.
+let moments = [];
+let momentBusy = false;
+
+/** Is this claim's text actually on screen?
+ *
+ *  Verdicts arrive out of order and late -- a claim from eight seconds ago can
+ *  resolve after two newer ones. Taking over the whole field for a sentence
+ *  that scrolled away is a verdict with no referent: the reader cannot see
+ *  what it is about, and the moment reads as random. When the words are gone,
+ *  the mark still lands on them and the "n new - 1 cap" pill is what brings
+ *  the reader back.
+ */
+function claimOnScreen(claimId) {
+  const mark = lyr().querySelector(`.mark[data-claim-id="${CSS.escape(claimId)}"]`);
+  if (!mark) return false;
+  const a = mark.getBoundingClientRect();
+  const b = lyr().getBoundingClientRect();
+  return a.bottom > b.top + 4 && a.top < b.bottom - 4;
+}
+
+function pumpMoments() {
+  if (momentBusy || !moments.length) return;
+  momentBusy = true;
+  const m = moments.shift();
+
+  const box = el("moment");
+  box.textContent = m.text;
+  box.dataset.verdict = m.verdict;
+  box.dataset.loud = m.loud ? "1" : "0";
+  box.hidden = false;
+
+  // Driven from here rather than from a CSS class, so the element has exactly
+  // one source of truth for its opacity and the end of the moment is an event
+  // rather than a timeout hoping to agree with a stylesheet.
+  const ms = m.loud ? 1750 : 1250;
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const frames = still
+    ? [{ opacity: 0 }, { opacity: 1, offset: 0.08 }, { opacity: 1, offset: 0.8 }, { opacity: 0 }]
+    : [
+        { opacity: 0, transform: "translateY(-50%) scale(0.94)" },
+        { opacity: 1, transform: "translateY(-50%) scale(1)", offset: 0.09 },
+        { opacity: 1, transform: "translateY(-50%) scale(1)", offset: 0.72 },
+        { opacity: 0, transform: "translateY(-50%) scale(0.99)" },
+      ];
+
+  const anim = box.animate(frames, {
+    duration: ms,
+    easing: "cubic-bezier(0.22, 0.61, 0.36, 1)",
+    fill: "both",
+  });
+  const done = () => {
+    box.hidden = true;
+    momentBusy = false;
+    pumpMoments();
+  };
+  anim.onfinish = done;
+  anim.oncancel = done;
+}
+
 function flashField() {
   for (const c of state.claims.values()) {
     if (!c.verdict || flashed.has(c.id + c.verdict)) continue;
@@ -470,6 +537,17 @@ function flashField() {
       relitTimers.set(c.id, setTimeout(() => line.classList.remove("relit"),
         parseInt(getComputedStyle(document.documentElement).getPropertyValue("--hold-relit")) || 2400));
       break;
+    }
+
+    // Queue the moment only while its words are still on screen. Two at most:
+    // past that they stop being moments and become a slideshow.
+    if (claimOnScreen(c.id) && moments.length < 2) {
+      moments.push({
+        text: c.sticker || c.verdict,
+        verdict: c.verdict,
+        loud: LOUD.has(c.verdict),
+      });
+      pumpMoments();
     }
 
     if (!LOUD.has(c.verdict)) continue;

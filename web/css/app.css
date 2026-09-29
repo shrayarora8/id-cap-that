@@ -630,6 +630,40 @@
              font-size: var(--fs-label); font-weight: var(--fw-line); }
 }
 
+@layer components {
+  /* The verdict, over the field, then gone.
+     It sits above the transcript and below nothing -- it never takes a click,
+     never reflows a line, and never waits for the reader. */
+  .moment {
+    position: fixed;
+    inset-inline: 0;
+    top: 50%;
+    z-index: var(--z-bar);
+    pointer-events: none;
+    text-align: center;
+    padding-inline: var(--gutter);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 0.95;
+    text-wrap: balance;
+    opacity: 0;
+  }
+  .moment[data-loud="1"] { font-size: clamp(46px, 17vw, 104px); }
+  .moment[data-loud="0"] {
+    font-size: clamp(26px, 8vw, 52px);
+    letter-spacing: -0.02em;
+    color: var(--faint);
+  }
+  .moment[data-verdict="CONTRADICTED"] { color: var(--v-red); }
+  .moment[data-verdict="SUPPORTED"]    { color: var(--v-green); }
+
+  /* The moment is animated from render.js with the Web Animations API, not
+     from here: one source of truth for its opacity, and its end is an event
+     rather than a timeout hoping to agree with a stylesheet. */
+  .moment { transform: translateY(-50%); }
+}
+
 @layer state {
   /* The field takes the verdict. The one moment the whole screen moves. */
   body[data-flash="CONTRADICTED"] { background-color: var(--flash-red); }
