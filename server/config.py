@@ -28,7 +28,16 @@ load_dotenv(ROOT / ".env")
 # A rejection comes back in ~60ms, so switching costs the user nothing they
 # could notice. Set SORTER_PROVIDER to "anthropic" to turn all of this off.
 SORTER_PROVIDER = "groq"
-SORTER_GROQ_MODEL = "openai/gpt-oss-20b"
+# Measured on 18 cases with the paid tier, no rate limiting to corrupt it:
+# the 120b gets 15/18 against the 20b's 14/18, catches all nine real factual
+# claims, never returns a malformed schema, and costs $0.402 per thousand
+# claims against $0.383 -- five per cent, because it answers more concisely
+# (261 output tokens against 490) and claws most of the rate back.
+#
+# qwen3.8-27b was tested and rejected: 11/18, silently dropping six of the
+# nine real claims. Losing a claim is the one failure this product cannot
+# have, whatever it saves.
+SORTER_GROQ_MODEL = "openai/gpt-oss-120b"
 # The ceiling on a hang. A refusal is instant; only a stall could cost time.
 GROQ_TIMEOUT_S = 4.0
 

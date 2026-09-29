@@ -23,7 +23,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from . import config, llm
+from . import buzzwords, config, llm
 
 log = logging.getLogger(__name__)
 
@@ -140,6 +140,19 @@ live on its own site; a league's results live on the league's site. Bare domain 
 only, and empty if no single organisation owns the answer.
 
 Rules:
+- PERSONAL FACTS ABOUT THE SPEAKER ARE NOT CLAIMS. Their own name, age, where \
+they live, where they work, what they had for breakfast: "My name is Shray", \
+"I live in London", "I'm 25". No source on the internet can settle any of \
+these, and searching finds pages about something else -- looking up "Shray" \
+returns baby-name sites, which is useless and faintly ridiculous. Emit NOTHING \
+for these, not even an unfalsifiable claim: stamping a verdict on someone \
+stating their own name is as bad as checking it. Treat them like small talk.
+  THIS IS ABOUT PERSONAL FACTS, NOT ABOUT THE WORD "I". A claim about a \
+company, product or the world is still a claim however it is phrased. "We're \
+going to revolutionise the space through cross-functional synergy" is fluff and \
+must be caught. "We moved the team onto Notion, it costs eight dollars a seat" \
+is a checkable claim about Notion. The test is whether anything outside this \
+conversation could possibly settle it.
 - A claim ASSERTS something. It needs a subject and something said about it. \
 A bare fragment is not a claim, however factual the words look: "Fifty \
 seconds.", "Per user.", "About twenty dollars." and "The market" assert \
@@ -154,6 +167,13 @@ for the most championships" is one claim, not three. Overlapping claims from \
 one statement produce several stickers on the same words, which reads as the \
 system stuttering.
 - Ignore small talk, filler and incomplete fragments entirely.
+- BUT BUZZWORDS ARE NOT FILLER. A sentence of corporate language that asserts \
+something impressive and means nothing IS a claim, and it must be emitted with \
+kind fluff. "This product will revolutionise the market through cross-functional \
+synergy", "we'll leverage our core competencies to unlock value at scale", "a \
+genuine step change in velocity" -- every one of these is a claim to return, \
+with checkable false and a short note saying why. Do NOT return an empty list \
+for these. Pointing at them is the single most useful thing you do.
 - If the window contains no claims of any kind, return an empty list.
 - Do not invent claims that were not said.
 - Never judge whether a claim is true. Another system does that with evidence."""
@@ -210,5 +230,28 @@ async def find_claims(window_text: str, context: str = "") -> list[Claim]:
         schema=SorterResult,
         max_tokens=1500,
     )
-    log.info("sorter: %d claim(s) in %r", len(result.claims), window_text[:60])
-    return result.claims
+    claims = result.claims
+
+    # The net. Every Groq model tested misses pure corporate buzzwords --
+    # including the 120b, which is six times the size of the 20b, so this is
+    # not something a bigger model fixes. WORD SALAD is one of the six
+    # verdicts, and losing it to a model's blind spot is not acceptable.
+    #
+    # It runs ONLY when the model found nothing, so it can turn silence into
+    # a verdict but can never overrule a claim, and therefore can never cost
+    # us a check. A model that catches these itself never reaches this line.
+    if not claims and buzzwords.is_word_salad(window_text):
+        found = sorted(set(buzzwords.hits(window_text)))[:3]
+        log.info("sorter: word salad in code (%s)", ", ".join(found))
+        claims = [Claim(
+            quote=window_text.strip(),
+            normalized=window_text.strip(),
+            kind="fluff",
+            hedge="stated",
+            checkable=False,
+            shape="other",
+            note=f"corporate filler: {', '.join(found)}",
+        )]
+
+    log.info("sorter: %d claim(s) in %r", len(claims), window_text[:60])
+    return claims
