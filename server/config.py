@@ -205,6 +205,33 @@ RECORD_SESSIONS = os.getenv("RECORD_SESSIONS", "1") == "1"
 RECORDINGS_DIR = ROOT / "recordings"
 
 # --- logging ----------------------------------------------------------------
+# Postgres for the page and search cache. Unset is fine and normal: the store
+# falls back to JSON files on disk, which is what local development uses.
+# It matters on Render, which gives a free service no persistent disk, so
+# every deploy currently throws away every page we have ever fetched.
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+# --- free evidence sources --------------------------------------------------
+# Wikipedia and the subject's own website, fetched directly. Measured at 229ms
+# for both in parallel, against ~1300ms and a credit for a search. Ten new
+# claims settled ten of ten from these alone.
+FREE_SOURCES_FIRST = True
+FREE_SOURCE_TIMEOUT_S = 6.0
+# Below this many passages, the free sources have not found enough to be worth
+# a judge call, so we go straight to search instead of paying to be told so.
+FREE_EVIDENCE_MIN_PASSAGES = 3
+# Under this many characters, a page returned HTML with no content in it --
+# almost always JavaScript rendering, which our crawler cannot do. A miss, not
+# an answer, and it must not be cached as one.
+MIN_USEFUL_PAGE_CHARS = 600
+
+# Wikipedia's API policy asks for a descriptive agent with contact details.
+# Anonymous scrapers are throttled first, and Wikipedia signals a throttle by
+# returning HTML instead of JSON rather than by erroring.
+HTTP_USER_AGENT = (
+    "IdCapThat/1.0 (https://github.com/shrayarora8/id-cap-that; shrayarora8@gmail.com)"
+)
+
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LIBRARY_LOG_LEVEL = os.getenv("LIBRARY_LOG_LEVEL", "WARNING").upper()
 

@@ -532,6 +532,25 @@ def first_number(text: str) -> float | None:
     return None
 
 
+YEAR_RE = re.compile(r"\b(1[0-9]{3}|2[0-9]{3})\b")
+
+
+def years_in(text: str) -> set[int]:
+    """Every four-digit year in a string, wherever it sits.
+
+    `first_number` reads the LEADING number, which is right for a quantity and
+    wrong for a date: "20 October 1973" leads with the day. Comparing 1973
+    against 20 put them 98.9% apart, the mismatch rail fired, and "The Sydney
+    Opera House opened in 1973" -- which is true, and which the judge had
+    correctly summarised as "formally opened on 20 October 1973" -- was
+    reported as ABSOLUTE CAP.
+
+    A false contradiction is the worst thing this tool can produce, so dates
+    are compared as dates.
+    """
+    return {int(m.group()) for m in YEAR_RE.finditer(text or "")}
+
+
 def compare_values(claimed: str, stated: str) -> str | None:
     """'match', 'mismatch', or None when there is nothing to compare.
 
@@ -539,6 +558,12 @@ def compare_values(claimed: str, stated: str) -> str | None:
     ("approximately five" against four) and too clever (deriving a goal total
     from minutes played), so the comparison is not left to prompting.
     """
+    # Dates first. A year mentioned anywhere counts, because a date is not a
+    # quantity and its leading number is usually the day.
+    claimed_years, stated_years = years_in(claimed), years_in(stated)
+    if claimed_years and stated_years:
+        return "match" if claimed_years & stated_years else "mismatch"
+
     a, b = first_number(claimed), first_number(stated)
     if a is None or b is None:
         return None

@@ -515,3 +515,30 @@ def test_a_verbatim_quote_is_still_checked_strictly():
     )
     good, bad = verify_citations(j, evidence)
     assert not good and len(bad) == 1
+
+
+def test_a_date_is_compared_as_a_date_not_as_a_quantity():
+    """The worst bug this system has produced: a false ABSOLUTE CAP.
+
+    "The Sydney Opera House opened in 1973" is true, and the judge said so --
+    its summary read "formally opened on 20 October 1973". Then the numeric
+    rail compared 1973 against `first_number("20 October 1973")`, which is 20,
+    because a date leads with the day. 98.9% apart, mismatch, and a correct
+    claim was called a lie.
+
+    A false contradiction is worse than any miss, so years are matched
+    wherever they appear in the string."""
+    assert compare_values("1973", "20 October 1973") == "match"
+    assert compare_values("1912", "15 April 1912") == "match"
+
+
+def test_the_wrong_year_is_still_caught():
+    """Loosening dates must not stop the rail doing its job."""
+    assert compare_values("1973", "20 October 1975") == "mismatch"
+    assert compare_values("1995", "1991") == "mismatch"
+    assert compare_values("2010", "2007") == "mismatch"
+
+
+def test_quantities_are_unaffected_by_the_date_rule():
+    assert compare_values("828 metres", "829.8 m") == "match"
+    assert compare_values("45 goals", "47 goals") == "mismatch"
