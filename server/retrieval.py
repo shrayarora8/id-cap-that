@@ -652,14 +652,42 @@ def _subject_of(claim_text: str) -> str:
 
     words = claim_text.split()
     names: list[str] = []
+    gap: list[str] = []          # connectors held back until a name resumes
     for w in words:
         stripped = w.strip(".,;:'\"")
-        if stripped and stripped[0].isupper() and stripped.lower() not in _NOT_A_SUBJECT:
-            names.append(stripped)
-        elif names:
-            break
-    return " ".join(names[:4]) or re.sub(r"[^\w\s]", "", claim_text).strip()
+        if not stripped:
+            continue
+        cap = stripped[0].isupper()
+        plain = stripped.lower()
 
+        if cap and (plain not in _NOT_A_SUBJECT or (names and gap)):
+            # A capital resumes the name. "My" in "Dancing on My Own" is a
+            # stop word on its own, but inside a title it is part of it --
+            # which is only knowable from the connector that preceded it.
+            names.extend(gap)
+            names.append(stripped)
+            gap = []
+            continue
+
+        if names and plain in _CONNECTORS:
+            # Held, not taken. A name never ENDS on a connector, so these are
+            # only kept if a capitalised word turns up after them.
+            gap.append(stripped)
+            continue
+
+        if names:
+            break
+        gap = []
+
+    return " ".join(names[:6]) or re.sub(r"[^\w\s]", "", claim_text).strip()
+
+
+# Words allowed to sit INSIDE a name, never to start or end one.
+_CONNECTORS = {
+    "of", "on", "in", "at", "the", "a", "an", "and", "for", "to", "with",
+    "de", "del", "della", "di", "da", "dos", "du", "la", "le", "van", "von",
+    "der", "den", "bin", "al",
+}
 
 _NOT_A_SUBJECT = {
     "the", "a", "an", "this", "that", "these", "those", "and", "but", "so",
