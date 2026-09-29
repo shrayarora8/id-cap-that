@@ -216,7 +216,20 @@ MAX_ESCALATIONS = 1
 # people are allowed to use.
 PUBLIC_CREDIT_CEILING = 300
 
-CLAIMS_PER_PUBLIC_SESSION = 12
+# Raised from 12 once both model legs moved to Groq. Twelve was set when a
+# claim cost about half a cent on Claude and a visitor could run through the
+# month's allowance in a couple of sittings. A claim now costs about a tenth
+# of that, and most of them never touch a paid source at all -- Wikipedia and
+# the subject's own site settle them for nothing.
+#
+# Twelve claims is roughly four minutes of talking. Someone hits the wall
+# while they are still working out what the thing does, which is the worst
+# possible moment to stop them. Fifty is a proper sitting.
+#
+# The real protection is PUBLIC_CREDIT_CEILING above, which counts Firecrawl
+# -- the only genuinely scarce thing here. This number just stops one browser
+# tab sitting open all afternoon.
+CLAIMS_PER_PUBLIC_SESSION = 50
 CLAIMS_PER_RESERVED_SESSION = 200
 MAX_LLM_CALLS_PER_SESSION = 120
 
