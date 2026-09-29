@@ -118,7 +118,7 @@
   --gutter: clamp(18px, 4.5vw, 40px);
   --line-gap: clamp(18px, 2.6vw, 26px);
   --measure: 760px;
-  --r-sm: 7px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+  --r-sm: 7px; --r-md: 12px; --r-lg: 16px; --r-xl: 22px; --r-pill: 999px;
   --tap: 44px;
 
   --safe-top:    env(safe-area-inset-top, 0px);

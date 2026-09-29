@@ -58,6 +58,7 @@ let cardSig = "";           // what the open card was last built from
 let coldDismissed = false;  // the introduction, closed by the reader only
 let ticker = null;
 let pinned = true;
+let lastHeight = 0;
 let unread = 0;
 let newCap = false;
 const PIN_SLOP = 48;
@@ -586,11 +587,32 @@ function paintTally() {
 // you read and starts being a list you scroll.
 const MAX_SOURCES = 3;
 
-function closeCard() {
+const EASE_OUT = "cubic-bezier(0.22, 0.61, 0.36, 1)";
+const EASE_IN = "cubic-bezier(0.4, 0, 1, 1)";
+const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** `animate` is false when one card is replacing another: the replacement
+ *  should be instant, or the outgoing card fades over the incoming one. */
+function closeCard(animate = true) {
   const c = document.querySelector(".card");
-  if (c) c.remove();
   openCard = null;
   cardSig = "";
+  if (!c) return;
+  if (!animate || still()) {
+    c.remove();
+    return;
+  }
+  if (c.dataset.closing) return;
+  c.dataset.closing = "1";
+  const a = c.animate(
+    [
+      { opacity: 1, transform: "translateY(0) scale(1)" },
+      { opacity: 0, transform: "translateY(8px) scale(0.985)" },
+    ],
+    { duration: 170, easing: EASE_IN, fill: "both" }
+  );
+  a.onfinish = () => c.remove();
+  a.oncancel = () => c.remove();
 }
 
 /** Only the fields the card actually draws. Rebuilding it on every message
@@ -605,7 +627,7 @@ function cardSignature(c) {
 }
 
 function showCard(claimId) {
-  closeCard();
+  closeCard(false);
   const c = state.claims.get(claimId);
   if (!c) return;
   openCard = claimId;
@@ -710,6 +732,16 @@ function showCard(claimId) {
   card.appendChild(foot);
 
   document.body.appendChild(card);
+
+  if (!still()) {
+    card.animate(
+      [
+        { opacity: 0, transform: "translateY(12px) scale(0.985)" },
+        { opacity: 1, transform: "translateY(0) scale(1)" },
+      ],
+      { duration: 300, easing: EASE_OUT, fill: "both" }
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -756,8 +788,18 @@ export function render() {
     const nodes = [...box.querySelectorAll(".line")];
     for (let i = from; i < nodes.length; i += 1) nodes[i].remove();
     const frag = document.createDocumentFragment();
-    for (let i = from; i < lines.length; i += 1) frag.appendChild(buildLine(lines[i]));
+    for (let i = from; i < lines.length; i += 1) {
+      const node = buildLine(lines[i]);
+      // Only a genuinely new line arrives; a line rebuilt because its text
+      // grew or a claim was found in it must not replay the entrance, or the
+      // sentence being spoken flickers on every word.
+      if (i >= lineSigsBefore) node.classList.add("enter");
+      frag.appendChild(node);
+    }
     box.appendChild(frag);
+    requestAnimationFrame(() => {
+      box.querySelectorAll(".line.enter").forEach((n) => n.classList.remove("enter"));
+    });
   }
   lineSigs = sigs;
 
@@ -785,7 +827,22 @@ export function render() {
     pinned = true;
     unread = 0;
     newCap = false;
-    box.scrollTo({ top: box.scrollHeight, behavior: "auto" });
+
+    // Only when the content actually grew. Interim words redraw several times
+    // a second, and calling scrollTo on every one of those makes a smooth
+    // scroll stutter against itself.
+    // Instant, deliberately. A smooth scroll is still travelling when the next
+    // message measures the position, so it concludes the reader scrolled away,
+    // drops the pin and puts up a "new" pill while the transcript is being
+    // followed perfectly well. The movement the eye wants comes from the line
+    // itself arriving, not from the container gliding underneath it.
+    //
+    // Only when the content actually grew: interim words redraw several times
+    // a second and would otherwise scroll on every frame.
+    if (box.scrollHeight !== lastHeight) {
+      box.scrollTo({ top: box.scrollHeight, behavior: "auto" });
+      lastHeight = box.scrollHeight;
+    }
   } else {
     pinned = false;
     if (sigs.length !== lineSigsBefore) unread += 1;

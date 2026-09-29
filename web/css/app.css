@@ -179,8 +179,13 @@
     letter-spacing: var(--ls-line);
     text-wrap: pretty;
     color: var(--past);
-    transition: color var(--dur-line) var(--ease);
+    transition: color var(--dur-line) var(--ease),
+                opacity 380ms var(--ease),
+                transform 380ms var(--ease);
   }
+  /* A line arrives rather than appears. Removed on the next frame, so the
+     transition above carries it in. */
+  .line.enter { opacity: 0; transform: translateY(10px); }
   /* The lit states. A line stays lit while it still has work in it, and
      lights back up when a late verdict finally lands on it. */
   .line.live, .line.held, .line.relit { color: var(--live); }
@@ -499,8 +504,8 @@
     max-height: min(62dvh, 560px);
     overflow-y: auto;
     overscroll-behavior: contain;
-    padding: var(--sp-6);
-    border-radius: var(--r-lg);
+    padding: var(--sp-7) var(--sp-6) var(--sp-6);
+    border-radius: var(--r-xl);
 
     /* The card sits on a lighter surface than the field, so it re-derives the
        dim steps against ITS OWN background. Inheriting the field's steps left
@@ -512,12 +517,11 @@
     --hair:  color-mix(in oklab, var(--surface) 84%, var(--live));
     background: var(--surface);
     border: 1px solid var(--hair);
-    box-shadow: 0 18px 44px rgb(0 0 0 / 0.34);
-    animation: cardin var(--dur-base) var(--ease) both;
-  }
-  @keyframes cardin {
-    from { opacity: 0; transform: translateY(10px); }
-    to   { opacity: 1; transform: none; }
+    /* Two shadows: a wide soft one for depth and a tight one for the edge, so
+       the card sits above the field rather than floating vaguely over it. */
+    box-shadow: 0 24px 64px rgb(0 0 0 / 0.42), 0 2px 8px rgb(0 0 0 / 0.30);
+    /* Entry and exit are animated from render.js, for the same reason the
+       verdict moment is: one source of truth, and the end is an event. */
   }
   @media (max-width: 640px) {
     .card {
@@ -527,20 +531,27 @@
     }
   }
 
-  .card-head { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); }
+  .card-head { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-5); }
   .card-v {
     font-size: var(--fs-tag); font-weight: var(--fw-line);
     letter-spacing: var(--ls-label); text-transform: uppercase; color: var(--vc);
   }
   .card-ms { margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-label); color: var(--sunk); }
-  .card-x { border: 0; background: none; color: var(--faint); padding: var(--sp-1) var(--sp-2); }
+  .card-x {
+    margin-left: auto;
+    border: 1px solid transparent; background: none; color: var(--faint);
+    width: 30px; height: 30px; border-radius: var(--r-pill);
+    display: grid; place-items: center; font-size: 14px;
+    transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+  }
+  .card-x:hover { color: var(--live); border-color: var(--hair); }
 
   .card h3 {
-    margin: 0 0 var(--sp-3);
-    font-size: var(--fs-claim); font-weight: var(--fw-semi);
-    line-height: 1.4; letter-spacing: -0.008em;
+    margin: 0 0 var(--sp-5);
+    font-size: 17px; font-weight: var(--fw-semi);
+    line-height: 1.38; letter-spacing: -0.012em;
   }
-  .card p { margin: 0 0 var(--sp-4); font-size: var(--fs-body); line-height: 1.6; color: var(--past); }
+  .card p { margin: 0 0 var(--sp-5); font-size: var(--fs-body); line-height: 1.62; color: var(--past); }
 
   .prov {
     display: inline-block; margin-bottom: var(--sp-4);
@@ -551,10 +562,10 @@
   }
 
   .fix {
-    margin: 0 0 var(--sp-4);
+    margin: 0 0 var(--sp-5);
     padding: var(--sp-4) var(--sp-5);
-    border-left: 2px solid var(--v-amber);
-    border-radius: 0 var(--r-sm) var(--r-sm) 0;
+    border-left: 3px solid var(--v-amber);
+    border-radius: 0 var(--r-md) var(--r-md) 0;
     background: color-mix(in oklab, var(--field) 78%, var(--live));
     font-size: var(--fs-body); font-weight: var(--fw-med); line-height: 1.5;
   }
@@ -563,9 +574,10 @@
   .src {
     display: flex; align-items: center; gap: var(--sp-3);
     min-height: var(--tap);
-    margin-bottom: var(--sp-2);
-    padding: var(--sp-2) var(--sp-4);
-    border-radius: var(--r-sm);
+    margin-bottom: var(--sp-3);
+    padding: var(--sp-2) var(--sp-5);
+    border-radius: var(--r-md);
+    transition: background-color var(--dur-fast) var(--ease);
     background: color-mix(in oklab, var(--field) 82%, var(--live));
     font-family: var(--font-mono); font-size: var(--fs-label);
     color: var(--past); text-decoration: none;
@@ -605,7 +617,7 @@
   .jump[data-new="cap"] { border-color: var(--v-red); color: var(--v-red); }
 
   .card-foot { display: flex; align-items: center; gap: var(--sp-4);
-               margin-top: var(--sp-4); padding-top: var(--sp-4);
+               margin-top: var(--sp-5); padding-top: var(--sp-5);
                border-top: 1px solid var(--hair); flex-wrap: wrap; }
   .card-meta { font-family: var(--font-mono); font-size: var(--fs-label); color: var(--sunk); }
 
