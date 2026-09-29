@@ -257,6 +257,11 @@ CLAIM_CACHE = True
 # 9.58" answer any claim about Bolt's hundred metres, so they are filed under
 # him too and a reworded claim reuses them instead of paying again. This is
 # the job Moss did before it was turned off for billing by the session-minute.
+# A corrected claim is typed, so it is the one piece of text a user controls
+# directly. Long enough for any real sentence, short enough that it cannot be
+# used to push a wall of text through the sorter.
+MAX_EDITED_CLAIM_CHARS = 400
+
 SUBJECT_MEMORY = True
 SUBJECT_MEMORY_MAX = 24        # passages held per subject
 FREE_SOURCE_TIMEOUT_S = 6.0

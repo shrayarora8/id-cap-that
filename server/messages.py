@@ -141,10 +141,26 @@ def claim_detected(
     checkable: bool,
     search_query: str = "",
     note: str = "",
+    edited: bool = False,
+    heard: str = "",
 ) -> dict[str, Any]:
     """A claim was found. `spans` say which characters of which phrases to
     underline: [{segment_id, start, end}, ...]. A claim can straddle two
-    phrases, so it contributes a span to each one it touches."""
+    phrases, so it contributes a span to each one it touches.
+
+    Re-emitted with the SAME claim_id when the user corrects a claim, so the
+    page never has to guess what is being checked. Without that, the page
+    would keep showing the text it patched in optimistically while the server
+    checked whatever its sorter made of the correction -- and the two would
+    diverge silently.
+
+    `edited` marks a corrected claim. `heard` carries the original
+    transcription, which is kept rather than discarded: a tool that checks
+    what people say should not quietly rewrite the record of what they said.
+    Showing the mis-hearing is also the only thing that explains WHY a check
+    went wrong -- it is the difference between "this is broken" and "it
+    mis-heard the name".
+    """
     return event(
         "claim.detected",
         claim_id=claim_id,
@@ -158,6 +174,8 @@ def claim_detected(
         checkable=checkable,
         search_query=search_query,
         note=note,
+        edited=edited,
+        heard=heard,
     )
 
 

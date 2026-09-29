@@ -214,6 +214,9 @@ async def handle_text(session: Session, raw: str) -> None:
         if text:
             emit_final(session, text)
 
+    elif kind == "edit_claim":
+        await edit_claim(session, msg)
+
     elif kind == "start_listening":
         await start_listening(session)
 
@@ -338,6 +341,13 @@ async def check_window(session: Session, window: Window) -> None:
                 for seg in window.segments
             ]
 
+        # Kept so an edit can re-run this claim against the same words.
+        session.claims[claim_id] = {
+            "window_id": window.window_id,
+            "spans": spans,
+            "heard": claim.quote,
+        }
+
         session.send(
             messages.claim_detected(
                 claim_id=claim_id,
@@ -409,6 +419,92 @@ async def check_window(session: Session, window: Window) -> None:
         # Its own job, so several claims resolve at once while the
         # conversation carries on.
         session.spawn(check_claim(session, claim_id, claim))
+
+
+async def edit_claim(session: Session, msg: dict) -> None:
+    """Re-check a claim the user corrected.
+
+    Transcription garbles names. "Sasha Moore works at Adobe" was heard as
+    "Saasha mor works at adobe", went out to the live web, took eleven
+    seconds and came back citing a Naruto fan wiki. The words on screen are
+    the only place that error is visible, so they are where it should be
+    fixable.
+
+    The corrected text is taken as the claim, not as a new utterance: it goes
+    through the sorter so we still learn its kind, shape and subject, but it
+    never touches the chunker, so a correction cannot be re-mangled by the
+    same mis-hearing it is trying to escape.
+
+    The claim keeps its id and its original spans. The transcript characters
+    are untouched, so the highlight stays exactly where it was and the page
+    renders the corrected string inside the existing mark.
+
+    `claim.detected` is re-emitted for the same id before the re-check. The
+    page draws the claim text from that message, so without it the server
+    and the page would disagree about what is being checked the moment the
+    sorter normalises a correction differently from how it was typed -- and
+    it will.
+    """
+    claim_id = (msg.get("claim_id") or "").strip()
+    text = (msg.get("text") or "").strip()
+    original = session.claims.get(claim_id)
+
+    if not claim_id or not text or not original:
+        # An edit for a claim we do not know about. Nothing to correct, and
+        # inventing a claim here would put words on screen nobody said.
+        log.info("edit for unknown claim %r, ignored", claim_id)
+        return
+
+    if len(text) > config.MAX_EDITED_CLAIM_CHARS:
+        session.send(messages.claim_error(
+            claim_id, "invalid", "that is too long to check as one claim"))
+        return
+
+    log.info("claim %s edited: %r -> %r", claim_id, original["heard"][:40], text[:40])
+
+    claims = await find_claims(text, "")
+    checkable = [c for c in claims if c.checkable]
+    if not checkable:
+        # The correction is not something evidence could settle. Say so on
+        # the claim rather than leaving it spinning.
+        note = claims[0].note if claims else "nothing checkable in that"
+        session.send(messages.claim_detected(
+            claim_id=claim_id,
+            window_id=original["window_id"],
+            spans=original["spans"],
+            quote=text,
+            normalized=text,
+            kind=claims[0].kind if claims else "vague",
+            hedge=claims[0].hedge if claims else "stated",
+            shape="other",
+            checkable=False,
+            search_query="",
+            note=note,
+            edited=True,
+            heard=original["heard"],
+        ))
+        return
+
+    claim = checkable[0]
+    session.claims[claim_id] = {**original, "heard": original["heard"]}
+
+    session.send(messages.claim_detected(
+        claim_id=claim_id,
+        window_id=original["window_id"],
+        spans=original["spans"],
+        quote=text,
+        normalized=claim.normalized,
+        kind=claim.kind,
+        hedge=claim.hedge,
+        shape=claim.shape,
+        checkable=True,
+        search_query=claim.search_query,
+        note=claim.note,
+        edited=True,
+        heard=original["heard"],
+    ))
+
+    session.spawn(check_claim(session, claim_id, claim))
 
 
 async def check_claim(session: Session, claim_id: str, claim) -> None:

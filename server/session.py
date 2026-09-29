@@ -50,6 +50,13 @@ class Session:
         # never written to disk, gone when the socket closes.
         self.byok: dict[str, str] = {}
 
+        # What each claim on screen was built from, so a correction can be
+        # re-run against the same words. Holds the original spans, the heard
+        # text, and the window -- the transcript characters never change when
+        # a claim is edited, so the spans stay valid and the highlight stays
+        # where it was.
+        self.claims: dict[str, dict[str, Any]] = {}
+
         cap = (
             config.CLAIMS_PER_RESERVED_SESSION
             if pool == "reserved"
