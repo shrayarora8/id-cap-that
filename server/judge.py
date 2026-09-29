@@ -347,12 +347,28 @@ def evidence_names_everyone_in_the_claim(
         # the subject.
         return True
 
+    # Normalise BOTH sides for NAME matching.
+    #
+    # The bug this fixes: "Cristiano Ronaldo plays for Al Nassr" against
+    # Wikipedia's opening sentence, which writes "Al-Nassr" with a hyphen. The
+    # judge read it correctly -- its own summary said "plays as a forward for
+    # and captains the Saudi Pro League club Al-Nassr" -- and then this rail
+    # threw the verdict away over one character.
+    #
+    # `_normalise` alone is not enough: it maps fancy dashes to a plain
+    # hyphen but never removes the hyphen, so "al-nassr" and "al nassr" still
+    # differ. `_flatten_name` goes further and treats any punctuation between
+    # words as a space -- which is right for a NAME and wrong for a quote, so
+    # it is deliberately separate. Quote verification stays strict.
+    # The same hole was open for Coca-Cola, Rolls-Royce and McDonald's.
+    wanted = {_flatten_name(name) for name in wanted}
+
     by_id = {item.evidence_id: item for item in evidence}
     for citation in citations:
         item = by_id.get(citation.evidence_id)
         if not item:
             continue
-        haystack = f"{item.title} {item.text}".lower()
+        haystack = _flatten_name(f"{item.title} {item.text}")
         if all(name in haystack for name in wanted):
             return True
     return False
@@ -366,6 +382,19 @@ _NOT_A_NAME = {
     "an", "in", "on", "at", "of", "for", "is", "was", "are", "his", "her",
     "their", "its", "my", "our", "your",
 }
+
+
+def _flatten_name(text: str) -> str:
+    """Normalise a name so punctuation between words cannot break a match.
+
+    "Al-Nassr" and "Al Nassr" are the same club. "McDonald's" and "McDonalds"
+    are the same company. A quote check must not be this forgiving -- a
+    verbatim quote is verbatim -- so this is separate from `_normalise` and
+    used only where NAMES are compared.
+    """
+    flat = _normalise(text)
+    flat = re.sub(r"[^a-z0-9]+", " ", flat)
+    return f" {flat.strip()} "
 
 
 def claim_names(claim: str) -> set[str]:

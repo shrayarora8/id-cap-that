@@ -467,3 +467,51 @@ def test_confirming_evidence_still_needs_every_name():
     result, notes = apply_guard_rails(j, evidence, "Taylor Swift dated Tom Holland.", shape="other")
     assert result.verdict == "INSUFFICIENT_EVIDENCE"
     assert any(c["code"] == "entities_missing" for c in notes)
+
+
+# --- names written with punctuation ----------------------------------------
+
+
+def test_a_hyphen_in_the_source_does_not_destroy_a_correct_verdict():
+    """The bug this pins, found on a live claim. Wikipedia's opening sentence
+    about Cristiano Ronaldo says he "captains the Saudi Pro League club
+    Al-Nassr". The claim said "Al Nassr". The judge read it correctly -- its
+    own summary quoted the sentence -- and this rail threw the verdict away
+    over one character.
+
+    Quote verification had been forgiving of typography since the first build
+    via PUNCTUATION_EQUIVALENTS; the entity check never was. The same hole was
+    open for Coca-Cola, Rolls-Royce and McDonald's."""
+    real = (
+        "Cristiano Ronaldo dos Santos Aveiro (born 5 February 1985) is a Portuguese "
+        "professional footballer who plays as a forward for and captains the Saudi "
+        "Pro League club Al-Nassr and the Portugal national team."
+    )
+    assert evidence_names_everyone_in_the_claim(
+        "Cristiano Ronaldo plays for Al Nassr",
+        [Citation(evidence_id="E1", quote="x")],
+        [ev("E1", real)],
+    )
+
+
+def test_name_matching_is_forgiving_but_relevance_is_not():
+    """Flattening punctuation must not reopen the Zendaya hole: a claim about
+    two named people still needs both of them on the page."""
+    evidence = [ev("E1", "Zendaya and Tom Holland confirmed their relationship in 2021.")]
+    assert not evidence_names_everyone_in_the_claim(
+        "Taylor Swift dated Tom Holland",
+        [Citation(evidence_id="E1", quote="x")],
+        evidence,
+    )
+
+
+def test_a_verbatim_quote_is_still_checked_strictly():
+    """_flatten_name is deliberately separate from _normalise. A name may be
+    matched loosely; a quote may not -- verbatim means verbatim."""
+    evidence = [ev("E1", "The Business plan costs twenty dollars per seat per month.")]
+    j = judgement(
+        verdict="SUPPORTED",
+        citations=[Citation(evidence_id="E1", quote="The Business plan costs ONE MILLION dollars")],
+    )
+    good, bad = verify_citations(j, evidence)
+    assert not good and len(bad) == 1
