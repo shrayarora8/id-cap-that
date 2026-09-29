@@ -273,6 +273,16 @@ CLAIM_CACHE = True
 # A corrected claim is typed, so it is the one piece of text a user controls
 # directly. Long enough for any real sentence, short enough that it cannot be
 # used to push a wall of text through the sorter.
+# How long a claim may keep escalating before we stop and answer with what
+# we have. Not a timeout on the request -- the work already done still
+# produces a verdict -- a ceiling on how long we keep LOOKING.
+#
+# A garbled claim ("Notion charges $8 receipt") cannot be settled by
+# anything, so without this it runs every rung of the ladder: free sources,
+# judge, search, judge, full page crawl, judge. Over a minute to reach the
+# same "could be cap" the first judge already had.
+ESCALATE_DEADLINE_S = 12.0
+
 MAX_EDITED_CLAIM_CHARS = 400
 
 SUBJECT_MEMORY = True

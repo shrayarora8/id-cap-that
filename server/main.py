@@ -685,7 +685,28 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
                     for e in evidence
                 ]))
 
-        deep_enough = not judgement.needs_full_pages or not hits
+        # A claim nothing can settle is the SLOWEST and most expensive path
+        # there is, and it is reached exactly when transcription garbles a
+        # word. "Notion charges $8 receipt" (heard for "a seat") cannot be
+        # confirmed by anything, so it ran free sources, a judge, a search,
+        # a second judge, a full page crawl and a third judge -- over a
+        # minute, to conclude what was obvious after the first one.
+        #
+        # So escalation gets a wall clock. Past the deadline we stop and
+        # confirm what we have, because a verdict that arrives after a minute
+        # has already failed the user whatever it says. Being honestly
+        # uncertain in eight seconds beats being uncertain in seventy.
+        spent = time.monotonic() - started
+        out_of_time = spent > config.ESCALATE_DEADLINE_S
+        if out_of_time and judgement.needs_full_pages:
+            log.info("claim %s: %.1fs spent, not escalating", claim_id, spent)
+            checks.append(messages.check(
+                "verdict_unsupported",
+                "stopped looking after "
+                f"{int(spent)}s -- what was found is what there is",
+            ))
+
+        deep_enough = not judgement.needs_full_pages or not hits or out_of_time
         send_verdict(
             session, claim_id, judgement, checks=checks,
             stage="confirmed" if deep_enough else "provisional",
