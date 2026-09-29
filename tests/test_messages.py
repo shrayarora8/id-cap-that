@@ -439,3 +439,41 @@ def test_both_providers_are_checked_in_the_cache_before_either_is_called():
     src = inspect.getsource(llm.ask_fast)
     body = src[src.index("for model in"):]
     assert "_cached" in body
+
+
+def test_a_hosted_postgres_url_is_made_safe_for_asyncpg():
+    """Neon hands out channel_binding, Supabase hands out pgbouncer.
+
+    asyncpg understands neither and raises. The pool then fails, the store
+    falls back to files, and the database someone just set up is never
+    touched -- while everything keeps working, so nothing says so.
+    """
+    from server.store import pg_url
+
+    neon = pg_url(
+        "postgresql://u:p@ep-x.aws.neon.tech/neondb"
+        "?sslmode=require&channel_binding=require"
+    )
+    assert "channel_binding" not in neon
+    assert "sslmode=require" in neon, "Neon requires TLS -- do not strip this"
+
+    supa = pg_url("postgresql://u:p@db.supabase.co:5432/postgres?pgbouncer=true")
+    assert "pgbouncer" not in supa
+
+    # A SQLAlchemy-style scheme is accepted and normalised rather than
+    # rejected, because it is what most docs paste.
+    assert pg_url("postgresql+asyncpg://u:p@h/db").startswith("postgresql://")
+
+    # Nothing to fix is not an error.
+    assert pg_url("postgresql://u:p@h/db") == "postgresql://u:p@h/db"
+
+
+def test_health_says_which_store_is_actually_in_use():
+    """A broken DATABASE_URL and no DATABASE_URL behave identically from
+    outside. Both keep answering, both forget on restart."""
+    from server import store
+
+    b = store.backend()
+    assert b["store"] in ("postgres", "files")
+    if b["store"] == "files":
+        assert b.get("why"), "a fallback must say why, or it is invisible"

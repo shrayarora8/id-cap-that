@@ -75,7 +75,9 @@ async def _pg():
     try:
         import asyncpg
 
-        _pool = await asyncpg.create_pool(url, min_size=1, max_size=4, timeout=10)
+        _pool = await asyncpg.create_pool(
+            pg_url(url), min_size=1, max_size=4, timeout=10
+        )
         async with _pool.acquire() as c:
             await c.execute(
                 """
@@ -92,9 +94,67 @@ async def _pg():
         log.info("store: postgres ready")
     except Exception as exc:  # noqa: BLE001
         # A database we cannot reach must not take the app down with it.
-        log.warning("store: postgres unavailable (%s), using files", exc)
+        # But falling back SILENTLY is how you end up believing a cache is
+        # working for a week while every claim is bought again, so the reason
+        # is kept and /health reports it.
+        global _pg_error
+        _pg_error = f"{type(exc).__name__}: {exc}"
+        log.warning("store: postgres unavailable (%s), using files", _pg_error)
         _pool = None
     return _pool
+
+
+def pg_url(url: str) -> str:
+    """Make a hosted provider's connection string safe for asyncpg.
+
+    Neon hands out `...?sslmode=require&channel_binding=require`. asyncpg has
+    never supported `channel_binding` and raises on it, so the pool fails, the
+    store quietly falls back to files, and the database that was just set up
+    is never touched. Supabase adds `pgbouncer=true`, which asyncpg also does
+    not know.
+
+    Unknown parameters are dropped rather than passed through. `sslmode` is
+    kept, because asyncpg does understand it and Neon requires TLS.
+    """
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+    parts = urlsplit(url.strip())
+    keep = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+            if k in ASYNCPG_PARAMS]
+    dropped = {k for k, _ in parse_qsl(parts.query)} - ASYNCPG_PARAMS
+    if dropped:
+        log.info("store: dropped unsupported url params %s", sorted(dropped))
+
+    scheme = parts.scheme
+    if scheme in ("postgresql+asyncpg", "postgres+asyncpg"):
+        scheme = "postgresql"
+
+    return urlunsplit((scheme, parts.netloc, parts.path, urlencode(keep), ""))
+
+
+# Everything asyncpg will actually accept from a DSN query string.
+ASYNCPG_PARAMS = {
+    "sslmode", "sslcert", "sslkey", "sslrootcert", "sslcrl",
+    "host", "port", "user", "password", "database", "dbname",
+    "application_name", "server_settings", "target_session_attrs",
+    "passfile", "connect_timeout",
+}
+
+_pg_error: str = ""
+
+
+def backend() -> dict[str, str]:
+    """What the store is ACTUALLY using, for /health.
+
+    The whole point is that this cannot be guessed from the outside. A
+    misconfigured database and no database at all behave identically -- both
+    keep serving claims, both just forget everything on restart.
+    """
+    if _pool is not None:
+        return {"store": "postgres"}
+    if not config.DATABASE_URL:
+        return {"store": "files", "why": "DATABASE_URL is not set"}
+    return {"store": "files", "why": _pg_error or "not connected yet"}
 
 
 # --- the interface the rest of the app uses --------------------------------

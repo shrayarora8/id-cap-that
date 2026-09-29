@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config, messages
 from .chunker import Chunker, Window
 from .judge import judge_claim
-from . import ledger
+from . import ledger, store
 from .llm import BudgetExceeded
 from .prefilter import worth_checking
 from .ratelimit import RateLimited
@@ -99,10 +99,24 @@ app = FastAPI(title="i'd cap that")
 
 @app.get("/health")
 async def health():
+    # Touch the pool so the answer reflects a real connection rather than
+    # whether anyone has happened to use the cache yet.
+    await store._pg()
     return {
         "ok": True,
         "protocol": messages.PROTOCOL_VERSION,
         "demo_budget": ledger.summary(),
+        # A broken DATABASE_URL and no DATABASE_URL behave identically from
+        # outside: both keep answering claims, both forget on restart. So the
+        # store says which one it is, and why, rather than leaving it to be
+        # inferred from a log nobody is reading.
+        **store.backend(),
+        "models": {
+            "sorter": (config.SORTER_GROQ_MODEL
+                       if config.SORTER_PROVIDER == "groq" else config.SORTER_MODEL),
+            "judge": (config.JUDGE_GROQ_MODEL
+                      if config.JUDGE_PROVIDER == "groq" else config.JUDGE_MODEL),
+        },
     }
 
 
