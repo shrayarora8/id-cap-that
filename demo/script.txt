@@ -1,15 +1,7 @@
-# The demo script. Pre-warm it with:
-#   python scripts/prewarm.py demo/script.txt
-# Lines starting with # are ignored. One spoken line per line.
+# The 30-second demo. Pre-warm with:
+#   .venv/bin/python scripts/prewarm.py demo/script.txt
+# Then check it stayed warm with --check before recording.
 
-So we're finally moving the whole team onto Notion.
-Notion costs eight dollars per seat per month.
-Notion raised at a ten billion dollar valuation back in 2021.
-Usain Bolt ran the hundred metres in 9.58 seconds.
-Python was first released in 1995.
-The iPhone came out in 2010.
-Mount Everest is nine thousand metres tall.
-The Eiffel Tower was finished in 1889.
-Taylor Swift has won twenty-eight Grammys.
-Snowflake is the best database in the world.
 We're going to revolutionise the space through cross-functional synergy.
+Usain Bolt ran the hundred metres in 9.58 seconds.
+And Notion costs eight dollars per seat per month.
