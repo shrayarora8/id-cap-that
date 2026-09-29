@@ -252,6 +252,13 @@ FREE_SOURCES_FIRST = True
 # a repeat claim is re-verified rather than replayed, and fixing a rail
 # retroactively corrects everything already cached.
 CLAIM_CACHE = True
+
+# Evidence is about a SUBJECT, not a sentence. Passages fetched for "Bolt ran
+# 9.58" answer any claim about Bolt's hundred metres, so they are filed under
+# him too and a reworded claim reuses them instead of paying again. This is
+# the job Moss did before it was turned off for billing by the session-minute.
+SUBJECT_MEMORY = True
+SUBJECT_MEMORY_MAX = 24        # passages held per subject
 FREE_SOURCE_TIMEOUT_S = 6.0
 # Below this many passages, the free sources have not found enough to be worth
 # a judge call, so we go straight to search instead of paying to be told so.

@@ -38,7 +38,9 @@ import httpx
 
 from . import config, store
 from .ratelimit import RateLimited, RateLimiter
-from .sources import Passage, canonical, chunk_page, preselect, tier_for
+from .sources import (
+    Passage, canonical, chunk_page, keyword_score, keywords, preselect, tier_for,
+)
 
 log = logging.getLogger(__name__)
 
@@ -744,6 +746,84 @@ async def recall_claim(normalized: str) -> list[Evidence]:
             # A row written by an older shape. Ignore it and re-earn it.
             return []
     return out
+
+
+SUBJECT_MEMORY = "subject"
+
+
+async def recall_subject(normalized: str) -> list[Evidence]:
+    """Passages we already hold about whatever this claim is ABOUT.
+
+    The claim cache only hits on the same sentence. But evidence is about a
+    subject, not a sentence: the Wikipedia passages fetched for "Usain Bolt
+    ran 9.58" answer any claim about Bolt's hundred metres, including the
+    wrong ones. Keying only on exact text meant changing a single word threw
+    all of it away and paid for the whole pipeline again.
+
+    This is what Moss used to do, before it was turned off for billing by
+    the session-minute. Same job, no meter running.
+
+    Reusing the wrong subject's passages is the risk, so the judge still
+    decides -- and if it comes back INSUFFICIENT_EVIDENCE, check_claim
+    already falls through to a real search. A bad shortcut costs a moment,
+    never a verdict.
+    """
+    subject = _subject_of(normalized)
+    if not subject or len(subject) < 3:
+        return []
+    rows = await store.get(SUBJECT_MEMORY, claim_key(subject))
+    if not rows:
+        return []
+    out: list[Evidence] = []
+    for r in rows:
+        try:
+            out.append(Evidence(**r))
+        except TypeError:
+            return []
+    if not out:
+        return []
+
+    # Held passages are about the subject, not necessarily about THIS claim.
+    # Score them against the actual sentence and keep only what looks like an
+    # answer, so "Bolt was born in Jamaica" does not get offered as evidence
+    # for a claim about his time.
+    # preselect RANKS, it does not score -- an earlier version of this
+    # filtered on Evidence.score, which preselect never sets, so every
+    # passage looked irrelevant and the whole shortcut silently never fired.
+    # Score on what the claim says ABOUT the subject, not on the subject.
+    # Every passage filed under "Usain Bolt" contains "Usain Bolt", so
+    # including the name makes everything score above zero and the filter
+    # does nothing -- his nationality gets offered as evidence about his
+    # race time. Removing the name leaves "ran", "100", "metres", "seconds",
+    # which is what actually decides relevance.
+    wanted = keywords(normalized) - keywords(subject)
+    if not wanted:
+        wanted = keywords(normalized)
+    kept = [e for e in preselect(out, normalized, config.PRESELECT_PASSAGES,
+                                 per_source=config.PASSAGES_PER_SOURCE * 2)
+            if keyword_score(e, wanted) > 0]
+    log.info("subject %r: %d held -> %d relevant", subject, len(out), len(kept))
+    return kept
+
+
+async def keep_subject(normalized: str, evidence: list[Evidence],
+                       kind: str = "", shape: str = "") -> None:
+    """File this evidence under the subject as well as under the claim."""
+    if not evidence:
+        return
+    subject = _subject_of(normalized)
+    if not subject or len(subject) < 3:
+        return
+    existing = await store.get(SUBJECT_MEMORY, claim_key(subject)) or []
+    seen = {r.get("text") for r in existing if isinstance(r, dict)}
+    merged = list(existing) + [
+        asdict(e) for e in evidence if e.text not in seen
+    ]
+    await store.put(
+        SUBJECT_MEMORY, claim_key(subject),
+        merged[-config.SUBJECT_MEMORY_MAX:],
+        ttl=store.ttl_for(kind or "", shape or ""),
+    )
 
 
 async def keep_claim(

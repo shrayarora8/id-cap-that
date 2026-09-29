@@ -26,8 +26,9 @@ from .llm import BudgetExceeded
 from .prefilter import worth_checking
 from .ratelimit import RateLimited
 from .retrieval import (
-    credits_used, deepen, free_evidence, keep_claim, recall, recall_claim,
-    remember, remembered_count, search, snippets_as_evidence, worth_judging,
+    credits_used, deepen, free_evidence, keep_claim, keep_subject, recall,
+    recall_claim, recall_subject, remember, remembered_count, search,
+    snippets_as_evidence, worth_judging,
 )
 from .session import Session
 from .sources import Passage
@@ -481,7 +482,20 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
         # What we can reach without paying, first. Wikipedia and the subject's
         # own site, in parallel, measured at 229ms against ~1300ms and a credit
         # for a search. Ten new claims settled ten of ten from these alone.
-        if config.FREE_SOURCES_FIRST and not from_claim_cache:
+        # Same sentence missed, but we may still hold passages about the
+        # THING it is about. Reworded claims, corrected typos and follow-up
+        # claims about the same subject all land here.
+        from_subject = False
+        if config.SUBJECT_MEMORY and not from_claim_cache:
+            held = await recall_subject(claim.normalized)
+            if held and worth_judging(held):
+                evidence = held
+                from_subject = True
+                status("searching", "already knows about this subject")
+                leg = mark("subject_memory", leg)
+                send_evidence(session, claim_id, evidence, "snippets")
+
+        if config.FREE_SOURCES_FIRST and not from_claim_cache and not from_subject:
             evidence = await free_evidence(claim, status)
             if evidence and not worth_judging(evidence):
                 # Too thin to be worth a judge call. Deciding that here rather
@@ -538,7 +552,7 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
         # So an unsatisfying remembered answer is not the final word: fall
         # through to the search we skipped and judge again. The only cost is
         # on the path that was going to disappoint anyway.
-        if (from_memory or from_free) and judgement.verdict == "INSUFFICIENT_EVIDENCE":
+        if (from_memory or from_free or from_subject) and judgement.verdict == "INSUFFICIENT_EVIDENCE":
             log.info("claim %s: free sources could not settle it, searching", claim_id)
             status("searching", "looking further afield")
             hits = await search(
@@ -571,6 +585,9 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
         if deep_enough:
             if not from_claim_cache:
                 session.spawn(keep_claim(
+                    claim.normalized, evidence, claim.kind, claim.shape))
+            if not from_subject and not from_claim_cache:
+                session.spawn(keep_subject(
                     claim.normalized, evidence, claim.kind, claim.shape))
             log_result(claim_id, judgement, checks, timings)
             note_spend(session, credits_before)
