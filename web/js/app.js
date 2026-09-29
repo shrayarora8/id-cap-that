@@ -144,6 +144,13 @@ el("cold-x").addEventListener("click", () => {
   render();
 });
 
+// --- correcting a garbled claim ---------------------------------------------
+// The renderer raises the intent; the socket is this file's business.
+
+document.addEventListener("cap:edit", (ev) => {
+  ws.sendJSON({ type: "edit_claim", claim_id: ev.detail.claimId, text: ev.detail.text });
+});
+
 // --- sound ------------------------------------------------------------------
 
 el("mute").addEventListener("click", (ev) => {

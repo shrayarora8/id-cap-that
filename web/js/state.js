@@ -22,6 +22,39 @@ export const state = {
   budget: { claimsLeft: 0, claimsCap: 0, pool: "public" },
 };
 
+/** The user corrected a claim the transcription garbled.
+ *
+ *  Applied locally so the page reacts on the keystroke rather than on the
+ *  round trip, and so the corrected words are on screen while the re-check
+ *  runs. The server re-emits claim.detected for the same id, which lands on
+ *  top of this and makes the two agree.
+ *
+ *  `heard` keeps what was actually said. A fact-checking product does not get
+ *  to quietly rewrite the record of someone's words, even when the words were
+ *  our own mistake.
+ */
+export function editClaim(claimId, text) {
+  const c = state.claims.get(claimId);
+  if (!c) return false;
+  if (c.heard === undefined) c.heard = c.quote || c.normalized || "";
+  Object.assign(c, {
+    normalized: text,
+    corrected: text,
+    stage: "queued",
+    detail: "re-checking",
+    verdict: null,
+    sticker: null,
+    summary: "",
+    correction: "",
+    citations: [],
+    evidence: [],
+    confidence: "none",
+    tookMs: null,
+    verdictStage: undefined,
+  });
+  return true;
+}
+
 // Returns true when the transcript needs redrawing.
 export function apply(msg) {
   switch (msg.type) {
@@ -81,10 +114,17 @@ export function apply(msg) {
       return true;
     }
 
-    case "claim.detected":
+    case "claim.detected": {
+      // A correction comes back under the same id, carrying what was actually
+      // heard. Server-backed, so the page is not relying on its own optimistic
+      // copy of the words.
+      const prev = state.claims.get(msg.claim_id);
       state.claims.set(msg.claim_id, {
         id: msg.claim_id,
-        epoch,
+        epoch: prev ? prev.epoch : epoch,
+        edited: Boolean(msg.edited),
+        heard: msg.heard || (prev && prev.heard) || "",
+        corrected: msg.edited ? msg.normalized : (prev && prev.corrected) || undefined,
         spans: msg.spans,
         quote: msg.quote,
         normalized: msg.normalized,
@@ -97,6 +137,7 @@ export function apply(msg) {
         sticker: null,
       });
       return true;
+    }
 
     case "claim.status": {
       const c = state.claims.get(msg.claim_id);

@@ -207,6 +207,34 @@ It is animated from `render.js` with the Web Animations API rather than from a
 stylesheet, so the element has one source of truth for its opacity and the end
 of the moment is an event rather than a timeout hoping to agree with CSS.
 
+### 11. Correcting a mis-hearing · agreed
+
+Deepgram heard "Saasha mor works at adobe." for "Sasha Moore works at Adobe."
+That went to the live web, took 10.7s, cost a credit and came back confidently
+wrong about a real person.
+
+- **The claim line in the card is the field.** Not a button that opens an
+  editor — the thing you want to fix is the thing you tap. A gesture directly
+  on the transcript span would compete with tap-to-open, which on a phone means
+  accidental edits on the one element that has to stay reliable.
+- **It holds what was checked, not what was heard.** The normalized claim is
+  the input to the check, so editing it manipulates the check directly. Filling
+  it with the raw transcription would send the correction back through the same
+  normalisation that mangled it.
+- **`heard: "…"` sits underneath, and only when the two differ.** This is the
+  explanation. Without it a reader can see the verdict is wrong but not why,
+  and the difference between "this is broken" and "it mis-heard the name" is
+  the whole of the product's credibility.
+- **The transcript shows the correction; the original is never discarded.** A
+  fact-checking product does not get to quietly rewrite the record of what
+  someone said, even when the words were our own mistake. The corrected words
+  are written once, into the claim's first fragment, and the words actually
+  said stay on the card.
+- **While it re-runs it is simply checking again** — sweep, counter, the state
+  that already exists. The card stays open, because it is the context for what
+  was just done, and the claim is scrolled into view so the verdict moment has
+  something to land on.
+
 ### Still to take
 
 Video frame · lyric emphasis · the verdict mark · type · the other four

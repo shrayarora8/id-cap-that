@@ -20,7 +20,7 @@
 // text or its claim spans change, and a verdict landing mutates attributes in
 // place so the animation is never restarted.
 
-import { state } from "./state.js";
+import { state, editClaim } from "./state.js";
 import * as sound from "./sound.js";
 
 const el = (id) => document.getElementById(id);
@@ -55,6 +55,7 @@ let relitTimers = new Map();
 let openCard = null;        // claim_id whose card is showing
 let startedAt = new Map();  // claim_id -> when we first saw it unresolved
 let cardSig = "";           // what the open card was last built from
+let editing = false;        // a correction is being typed; do not rebuild under it
 let coldDismissed = false;  // the introduction, closed by the reader only
 let ticker = null;
 let pinned = true;
@@ -181,7 +182,9 @@ function hitsIn(chunk) {
 function lineSignature(line) {
   const text = line.chunks.map((c) => `${c.segId}:${c.base}:${c.text.length}`).join("|");
   const marks = line.chunks
-    .flatMap((c) => hitsIn(c).map((h) => `${h.id}@${h.s}-${h.e}`))
+    .flatMap((c) =>
+      hitsIn(c).map((h) => `${h.id}@${h.s}-${h.e}:${state.claims.get(h.id)?.corrected || ""}`)
+    )
     .join(",");
   const skip = [...line.wins].map((w) => w.skipped || "").join(",");
   return `${text}#${marks}#${skip}`;
@@ -198,20 +201,40 @@ function buildLine(line) {
     const hits = hitsIn(chunk);
     let at = 0;
 
-    const emit = (text, claimId) => {
+    const emit = (text, claimId, absStart) => {
       if (!text) return;
       if (!claimId) {
         p.appendChild(document.createTextNode(text));
         return;
       }
+      const claim = state.claims.get(claimId);
       const mark = document.createElement("span");
       mark.className = "mark";
       mark.dataset.claimId = claimId;
       mark.setAttribute("role", "button");
       mark.setAttribute("tabindex", "0");
+
+      // A corrected claim shows the correction, not the mis-hearing: leaving
+      // "Saasha mor" beside a verdict about "Sasha Moore" reads as broken.
+      //
+      // A claim can straddle two phrases, so the correction is written once,
+      // into its first fragment, and the later fragments render nothing --
+      // their words have been replaced, not repeated. The words actually said
+      // are never discarded; they stay on the card as the `heard:` line.
+      let shown = text;
+      if (claim && claim.corrected) {
+        const first = (claim.spans || [])[0];
+        const isFirst =
+          first && chunk.segId === first.segment_id && absStart < first.end;
+        if (!isFirst) return;
+        shown = claim.corrected;
+        mark.dataset.edited = "1";
+        mark.title = claim.heard ? `heard: “${claim.heard}”` : "";
+      }
+
       const txt = document.createElement("span");
       txt.className = "txt";
-      txt.textContent = text;
+      txt.textContent = shown;
       mark.appendChild(txt);
       p.appendChild(mark);
     };
@@ -226,15 +249,24 @@ function buildLine(line) {
     for (const h of hits) {
       const from = Math.max(h.s, at);
       const to = Math.max(h.e, from);
-      if (from > at) emit(chunk.text.slice(at, from), null);
-      if (to > from) emit(chunk.text.slice(from, to), h.id);
+      if (from > at) emit(chunk.text.slice(at, from), null, chunk.base + at);
+      if (to > from) emit(chunk.text.slice(from, to), h.id, chunk.base + from);
       at = Math.max(at, to);
     }
-    emit(chunk.text.slice(at), null);
+    emit(chunk.text.slice(at), null, chunk.base + at);
 
     const isLast = ci === line.chunks.length - 1;
     if (!isLast && !/\s$/.test(chunk.text)) p.appendChild(document.createTextNode(" "));
   });
+
+  // Replacing a claim's words can leave the separator that used to sit between
+  // two phrases stranded in front of the sentence's full stop: "per month ."
+  for (const node of [...p.childNodes]) {
+    if (node.nodeType !== Node.TEXT_NODE || !/^\s+$/.test(node.textContent)) continue;
+    const next = node.nextSibling;
+    const after = next && (next.nodeType === Node.TEXT_NODE ? next.textContent : next.textContent);
+    if (after && /^[.,;:!?…)"'”’\]]/.test(after)) node.remove();
+  }
 
   // A window the pre-filter dropped. Addressed by window_id, drawn on words.
   const skipped = [...line.wins].map((w) => w.skipped).filter(Boolean);
@@ -404,6 +436,53 @@ function endsLine(mark) {
     return n === mark || n.contains(mark);
   }
   return true;
+}
+
+/** Swap the claim line for a field holding the same words. */
+function beginEdit(card, c) {
+  if (editing) return;
+  editing = true;
+  const line = card.querySelector(".claim-line");
+  if (!line) { editing = false; return; }
+
+  const wrap = document.createElement("div");
+  wrap.className = "claim-edit";
+  const ta = document.createElement("textarea");
+  ta.value = c.normalized || c.quote || "";
+  ta.rows = 1;
+  ta.setAttribute("aria-label", "Correct this claim");
+  const hint = document.createElement("p");
+  hint.className = "edit-hint";
+  hint.textContent = "Enter to check it again · Esc to cancel";
+  wrap.appendChild(ta);
+  wrap.appendChild(hint);
+  line.replaceWith(wrap);
+
+  const grow = () => { ta.style.height = "auto"; ta.style.height = `${ta.scrollHeight}px`; };
+  grow();
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  ta.addEventListener("input", grow);
+
+  const cancel = () => { editing = false; cardSig = ""; render(); };
+  const commit = () => {
+    const text = ta.value.trim();
+    editing = false;
+    if (!text || text === (c.normalized || "")) { cardSig = ""; render(); return; }
+    editClaim(c.id, text);
+    // Send it on, and put the claim back where it can be watched.
+    document.dispatchEvent(new CustomEvent("cap:edit", { detail: { claimId: c.id, text } }));
+    const mark = lyr().querySelector(`.mark[data-claim-id="${CSS.escape(c.id)}"]`);
+    if (mark && !claimOnScreen(c.id)) mark.scrollIntoView({ block: "center", behavior: "auto" });
+    cardSig = "";
+    render();
+  };
+
+  ta.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") { ev.preventDefault(); cancel(); }
+    if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); commit(); }
+  });
+  ta.addEventListener("blur", commit);
 }
 
 function ariaFor(c) {
@@ -634,7 +713,7 @@ function closeCard(animate = true) {
 function cardSignature(c) {
   return [
     c.verdict, c.sticker, c.verdictStage, c.depth, c.summary, c.correction,
-    c.confidence, c.tookMs, c.detail, c.stage,
+    c.confidence, c.tookMs, c.detail, c.stage, c.corrected, c.heard,
     (c.citations || []).length, (c.evidence || []).length,
   ].join("|");
 }
@@ -664,9 +743,31 @@ function showCard(claimId) {
   head.querySelector(".card-x").onclick = () => { closeCard(); paintClaims(); };
   card.appendChild(head);
 
+  // The claim line is the field. Not a button that opens an editor -- the
+  // thing you want to fix is the thing you tap.
   const h3 = document.createElement("h3");
+  h3.className = "claim-line";
   h3.textContent = c.normalized || c.quote || "";
+  h3.tabIndex = 0;
+  h3.setAttribute("role", "button");
+  h3.title = "Correct this claim";
+  const startEdit = () => beginEdit(card, c);
+  h3.onclick = startEdit;
+  h3.onkeydown = (ev) => {
+    if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); startEdit(); }
+  };
   card.appendChild(h3);
+
+  // Why the check went wrong, in one line, and only when there is something
+  // to say: the words we heard, when they are not the words we checked.
+  const heard = c.heard || c.quote || "";
+  const differs = heard && heard.trim().toLowerCase() !== (c.normalized || "").trim().toLowerCase();
+  if (differs) {
+    const h = document.createElement("p");
+    h.className = "heard";
+    h.textContent = `heard: “${heard}”`;
+    card.appendChild(h);
+  }
 
   if (c.verdictStage === "provisional") {
     const p = document.createElement("span");
@@ -694,6 +795,13 @@ function showCard(claimId) {
   if (!c.verdict && !c.sticker && c.checkable !== false) {
     const p = document.createElement("p");
     p.textContent = c.detail || "checking…";
+    card.appendChild(p);
+  }
+  // A correction can turn a claim into something no evidence could settle.
+  // Nothing follows it, so the card has to say so rather than wait.
+  if (c.checkable === false && !c.verdict && c.note) {
+    const p = document.createElement("p");
+    p.textContent = c.note;
     card.appendChild(p);
   }
 
@@ -831,7 +939,7 @@ export function render() {
   paintTally();
   paintChrome();
 
-  if (openCard) {
+  if (openCard && !editing) {
     const c = state.claims.get(openCard);
     if (c && cardSignature(c) !== cardSig) showCard(openCard);
   }
@@ -879,6 +987,7 @@ document.addEventListener("click", (ev) => {
     else { showCard(id); paintClaims(); }
     return;
   }
+  if (editing) return;
   if (!ev.target.closest || !ev.target.closest(".card")) { closeCard(); paintClaims(); }
 });
 

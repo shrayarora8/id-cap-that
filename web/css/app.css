@@ -553,6 +553,54 @@
   }
   .card p { margin: 0 0 var(--sp-5); font-size: var(--fs-body); line-height: 1.62; color: var(--past); }
 
+  /* The claim line is the field. It reads as text until you reach for it. */
+  .claim-line {
+    cursor: text;
+    border-radius: var(--r-sm);
+    margin-inline: calc(-1 * var(--sp-3));
+    padding-inline: var(--sp-3);
+    transition: background-color var(--dur-fast) var(--ease);
+  }
+  .claim-line:hover { background: color-mix(in oklab, var(--surface) 88%, var(--live)); }
+  .claim-line:focus-visible { outline: 2px solid var(--past); outline-offset: 1px; }
+
+  .claim-edit { margin: 0 0 var(--sp-5); }
+  .claim-edit textarea {
+    display: block;
+    width: 100%;
+    resize: none;
+    overflow: hidden;
+    margin-inline: calc(-1 * var(--sp-3));
+    padding: var(--sp-3);
+    width: calc(100% + var(--sp-3) * 2);
+    border: 1px solid var(--past);
+    border-radius: var(--r-md);
+    background: color-mix(in oklab, var(--surface) 82%, var(--live));
+    color: var(--live);
+    font-family: inherit;
+    font-size: 17px;
+    font-weight: var(--fw-semi);
+    line-height: 1.38;
+    letter-spacing: -0.012em;
+  }
+  .claim-edit textarea:focus { outline: none; border-color: var(--live); }
+  .edit-hint {
+    margin: var(--sp-3) 0 0 !important;
+    font-size: var(--fs-label);
+    color: var(--sunk) !important;
+    letter-spacing: 0.02em;
+  }
+
+  /* What was said, when it is not what was checked. The explanation for a
+     wrong verdict, and the record we are not allowed to quietly discard. */
+  .heard {
+    margin: calc(-1 * var(--sp-3)) 0 var(--sp-5) !important;
+    font-family: var(--font-mono);
+    font-size: var(--fs-label);
+    line-height: 1.5;
+    color: var(--sunk) !important;
+  }
+
   .prov {
     display: inline-block; margin-bottom: var(--sp-4);
     padding: var(--sp-1) var(--sp-3);
@@ -650,7 +698,9 @@
     position: fixed;
     inset-inline: 0;
     top: 50%;
-    z-index: var(--z-bar);
+    /* Below the card. A verdict landing while someone is reading the evidence
+       must not paint over the thing they opened. */
+    z-index: var(--z-moment);
     pointer-events: none;
     text-align: center;
     padding-inline: var(--gutter);
