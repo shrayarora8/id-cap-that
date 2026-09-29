@@ -1,0 +1,63 @@
+# Stop the free Render service falling asleep.
+#
+# Render spins a free service down after ~15 minutes with no traffic, and the
+# next visitor waits 30-60 seconds for a cold start. Someone who opens the link
+# and sees a blank page assumes it is broken, not asleep -- and they do not
+# come back to check.
+#
+# scripts/keepalive.sh does the same job but only while a laptop is open. This
+# runs on GitHub's machines, so the site stays warm whether or not anyone is at
+# a desk. It costs nothing: scheduled workflows on a public repository are free
+# and this one runs for about two seconds.
+#
+# Two things worth knowing rather than discovering later:
+#   * GitHub does not fire cron on time. Five to fifteen minutes late is normal
+#     under load, which is why this asks for every ten minutes rather than
+#     every fourteen -- a late run still lands inside Render's window.
+#   * GitHub disables scheduled workflows after 60 days with no commits to the
+#     repository. If the site starts sleeping again months from now, this is
+#     why, and the fix is the "Enable workflow" button on the Actions tab.
+
+name: keepalive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:        # so it can be run by hand from the Actions tab
+
+# Never let two pings overlap if one run is slow.
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wake the service
+        run: |
+          URL="${{ vars.SITE_URL || 'https://id-cap-that.onrender.com' }}"
+          echo "pinging $URL/health"
+
+          # A sleeping service can take most of a minute to wake, so the
+          # first attempt is given a long timeout rather than being treated
+          # as a failure. Three tries, because a cold start occasionally
+          # drops the first connection outright.
+          for attempt in 1 2 3; do
+            code=$(curl -sS -o /tmp/body -w '%{http_code}' \
+                        --max-time 90 --retry 0 "$URL/health" || echo 000)
+            echo "attempt $attempt -> HTTP $code"
+            if [ "$code" = "200" ]; then
+              head -c 300 /tmp/body; echo
+              exit 0
+            fi
+            sleep 15
+          done
+
+          echo "::warning::$URL did not answer 200 after three attempts"
+          head -c 300 /tmp/body 2>/dev/null || true
+          # Deliberately not a failure. A red X every time Render has a
+          # blip trains you to ignore the Actions tab, and this job is a
+          # nudge, not a monitor.
+          exit 0

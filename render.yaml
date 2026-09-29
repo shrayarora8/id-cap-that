@@ -32,6 +32,12 @@ services:
         sync: false
       - key: FIRECRAWL_API_KEY
         sync: false
+      # Without this the service silently falls back to Claude for BOTH the
+      # sorter and the judge. Nothing breaks and nothing says so -- the site
+      # just costs about four times as much per claim and runs slower. It was
+      # missing here for the whole of the first week it was live.
+      - key: GROQ_API_KEY
+        sync: false
       - key: MOSS_PROJECT_ID
         sync: false
       - key: MOSS_PROJECT_KEY
@@ -42,3 +48,11 @@ services:
       # public host without a reason.
       - key: RECORD_SESSIONS
         value: "0"
+      # OPTIONAL, and deliberately not declared above so a deploy never blocks
+      # waiting for it.
+      #
+      # Render's free tier has NO persistent disk, so every redeploy wipes the
+      # caches and each page, search and claim is paid for again. Add a free
+      # Postgres URL (Neon or Supabase) as DATABASE_URL in the dashboard and
+      # the store switches over on its own -- no code change, no flag. Without
+      # it everything still works, it just forgets on each deploy.
