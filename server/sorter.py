@@ -201,8 +201,10 @@ def build_prompt(window_text: str, context: str) -> str:
 
 
 async def find_claims(window_text: str, context: str = "") -> list[Claim]:
-    result = await llm.ask(
-        model=config.SORTER_MODEL,
+    # The fastest provider that works, with Claude behind it. Identical
+    # prompt and schema either way, so nothing downstream can tell which
+    # answered.
+    result = await llm.ask_fast(
         system=SYSTEM,
         user=build_prompt(window_text, context),
         schema=SorterResult,

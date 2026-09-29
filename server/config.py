@@ -15,7 +15,24 @@ ROOT = Path(__file__).parent.parent
 load_dotenv(ROOT / ".env")
 
 # --- models -----------------------------------------------------------------
-SORTER_MODEL = "claude-haiku-4-5"   # finds claims in a window of speech
+# Claim extraction. Measured on the real sorter prompt:
+#   openai/gpt-oss-20b   471ms median, passed every quality case
+#   claude-haiku-4-5    1700ms
+#
+# So the open model runs it, and Claude catches it when Groq cannot. The free
+# tier allows 8,000 tokens a minute and one sorter call costs about 2,000, so
+# roughly three claims a minute before it starts refusing -- and a normal
+# conversation produces more than that. The fallback is not a nicety, it is
+# the thing that makes this usable at all.
+#
+# A rejection comes back in ~60ms, so switching costs the user nothing they
+# could notice. Set SORTER_PROVIDER to "anthropic" to turn all of this off.
+SORTER_PROVIDER = "groq"
+SORTER_GROQ_MODEL = "openai/gpt-oss-20b"
+# The ceiling on a hang. A refusal is instant; only a stall could cost time.
+GROQ_TIMEOUT_S = 4.0
+
+SORTER_MODEL = "claude-haiku-4-5"   # the fallback, and the judge
 JUDGE_MODEL = "claude-haiku-4-5"    # weighs evidence, returns the verdict
 
 # --- speech to text ---------------------------------------------------------

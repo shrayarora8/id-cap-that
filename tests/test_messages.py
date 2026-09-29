@@ -336,3 +336,47 @@ def test_moss_recall_is_gated_on_the_subject_not_just_similarity():
     assert any(n in amazon for n in same), "the same subject must still be reused"
 
     assert config.MOSS_TIMEOUT_S <= 2.0, "recall must never become the slow part"
+
+
+# --- the fast-provider fallback ---------------------------------------------
+
+
+def test_the_sorter_falls_back_rather_than_failing():
+    """Groq's free tier allows roughly three sorter calls a minute and a
+    conversation produces more, so refusal is the normal case, not the
+    exception. It must never surface as a failed claim.
+
+    Reads the source rather than calling the network: `ask_fast` must have a
+    path that ends in the Anthropic model no matter what the fast provider
+    does."""
+    import inspect
+
+    from server import config, llm
+
+    src = inspect.getsource(llm.ask_fast)
+    assert "except Exception" in src, "a refusal must not propagate"
+    assert "config.SORTER_MODEL" in src, "there must be a Claude fallback"
+    # A hang is the only failure that could cost the user real time.
+    assert config.GROQ_TIMEOUT_S <= 6.0, "an unbounded wait defeats the point"
+
+
+def test_turning_the_fast_provider_off_restores_claude_only():
+    """One config line must return the system to known behaviour."""
+    import inspect
+
+    from server import llm
+
+    src = inspect.getsource(llm.ask_fast)
+    assert 'config.SORTER_PROVIDER != "groq"' in src
+
+
+def test_both_providers_are_checked_in_the_cache_before_either_is_called():
+    """Otherwise a claim Claude already answered gets re-offered to Groq on
+    every repeat, purely to be refused."""
+    import inspect
+
+    from server import llm
+
+    src = inspect.getsource(llm.ask_fast)
+    body = src[src.index("for model in"):]
+    assert "_cached" in body

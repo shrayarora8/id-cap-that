@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 from typing import Any, TypeVar
 
+import httpx
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel
 
@@ -63,12 +64,70 @@ CACHE_MINIMUM_TOKENS = {
     "claude-haiku-4-5": 4096,
 }
 
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
 _client: AsyncAnthropic | None = None
+_groq: "httpx.AsyncClient | None" = None
 _spent_usd = 0.0
 _calls = 0
 _cache_hits = 0
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def groq() -> httpx.AsyncClient:
+    """One client for the process, so the second call skips the handshake."""
+    global _groq
+    if _groq is None:
+        _groq = httpx.AsyncClient(
+            base_url="https://api.groq.com",
+            headers={"Authorization": f"Bearer {config.require('GROQ_API_KEY')}"},
+            # Deliberately short. A rate-limit rejection comes back in about
+            # 60ms, so the fallback is invisible; a HANG is the only way this
+            # could cost the user anything, and this is the ceiling on that.
+            timeout=config.GROQ_TIMEOUT_S,
+        )
+    return _groq
+
+
+async def _ask_groq(model: str, system: str, user: str, schema: type[T]) -> T:
+    """One structured call to an open model on Groq.
+
+    Same prompt, same Pydantic schema as the Anthropic path. Anything that
+    goes wrong -- rate limit, malformed JSON, a field the schema rejects --
+    raises, and the caller falls back to Claude. There is no half-working
+    state: either we get an object of the right shape or we do not.
+    """
+    resp = await groq().post(
+        "/openai/v1/chat/completions",
+        json={
+            "model": model,
+            "temperature": 0,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": schema.__name__,
+                    "schema": schema.model_json_schema(),
+                    "strict": False,
+                },
+            },
+        },
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    # Validation is the point. A model that returns the wrong shape must fail
+    # loudly here rather than quietly degrade the claim downstream.
+    parsed = schema.model_validate_json(body["choices"][0]["message"]["content"])
+    usage = body.get("usage", {})
+    log.info(
+        "llm %s: %d in / %d out (groq)",
+        model, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0),
+    )
+    return parsed
 
 
 def client() -> AsyncAnthropic:
@@ -150,6 +209,73 @@ async def ask(
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         cached_at.write_text(parsed.model_dump_json())
     return parsed
+
+
+async def ask_fast(
+    *, system: str, user: str, schema: type[T], max_tokens: int = 2000
+) -> T:
+    """Ask the fastest thing that works, and never fail because of it.
+
+    Groq's open model runs the sorter in about 470ms against Haiku's 1700ms,
+    on the identical prompt and the identical schema. But its free tier allows
+    three of our calls a minute, and a conversation produces more, so it WILL
+    refuse -- routinely, not exceptionally.
+
+    A refusal returns in roughly 60ms, so falling back costs the user nothing
+    they could perceive. A hang is the only real risk, and `GROQ_TIMEOUT_S`
+    bounds it.
+
+    Both caches are checked before either provider is called, so a claim
+    Claude already answered is never re-offered to Groq just to be refused.
+    """
+    fallback = config.SORTER_MODEL
+
+    if config.SORTER_PROVIDER != "groq":
+        return await ask(model=fallback, system=system, user=user,
+                         schema=schema, max_tokens=max_tokens)
+
+    fast = config.SORTER_GROQ_MODEL
+
+    # Either provider's remembered answer beats calling anything.
+    for model in (fast, fallback):
+        hit = _cached(model, system, user, schema)
+        if hit is not None:
+            return hit
+
+    try:
+        parsed = await _ask_groq(fast, system, user, schema)
+        _remember(fast, system, user, schema, parsed)
+        return parsed
+    except Exception as exc:  # noqa: BLE001
+        # Rate limited, malformed, unreachable -- it does not matter which.
+        # Claude answers it and the user sees a normal claim.
+        log.info("groq unavailable (%s), using %s", _why(exc), fallback)
+
+    return await ask(model=fallback, system=system, user=user,
+                     schema=schema, max_tokens=max_tokens)
+
+
+def _why(exc: Exception) -> str:
+    """A short reason, so the logs say WHICH failure without a traceback."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    return type(exc).__name__
+
+
+def _cached(model: str, system: str, user: str, schema: type[T]) -> T | None:
+    path = CACHE_DIR / f"{_cache_key(model, system, user, schema.__name__)}.json"
+    if not path.exists():
+        return None
+    global _cache_hits
+    _cache_hits += 1
+    return schema.model_validate_json(path.read_text())
+
+
+def _remember(model: str, system: str, user: str, schema: type[T], value: T) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    (CACHE_DIR / f"{_cache_key(model, system, user, schema.__name__)}.json").write_text(
+        value.model_dump_json()
+    )
 
 
 def stats() -> dict[str, Any]:
