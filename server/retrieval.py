@@ -619,7 +619,20 @@ async def free_evidence(claim, on_status=lambda _s, _d="": None) -> list[Evidenc
             return []
 
     on_status("searching", "checking what it already knows")
-    legs = await asyncio.gather(wiki(), authority(), return_exceptions=True)
+
+    # Each HTTP call inside these legs is timed, but nothing bounded the
+    # STAGE. The Wikipedia leg makes two calls and the authority leg makes
+    # up to three, so a slow day could spend eighteen seconds here before
+    # the judge had seen anything -- and the claim then still went on to
+    # search and judge twice more. A whole stage needs its own ceiling.
+    try:
+        legs = await asyncio.wait_for(
+            asyncio.gather(wiki(), authority(), return_exceptions=True),
+            timeout=config.FREE_STAGE_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        log.info("free: stage timed out after %.0fs", config.FREE_STAGE_TIMEOUT_S)
+        return []
 
     passages: list[Passage] = []
     for leg in legs:

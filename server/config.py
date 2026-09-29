@@ -283,11 +283,24 @@ CLAIM_CACHE = True
 # same "could be cap" the first judge already had.
 ESCALATE_DEADLINE_S = 12.0
 
+# The hard floor under everything: a claim ALWAYS ends in a verdict.
+#
+# Every stage is bounded on its own and they still added up -- five HTTP
+# requests across the free legs, a judge, a search, a second judge, a crawl,
+# a third judge. The page gives up at 45s and prints NO ANSWER, which reads
+# as broken rather than uncertain, so the server must answer first.
+CLAIM_DEADLINE_S = 25.0
+
 MAX_EDITED_CLAIM_CHARS = 400
 
 SUBJECT_MEMORY = True
 SUBJECT_MEMORY_MAX = 24        # passages held per subject
 FREE_SOURCE_TIMEOUT_S = 6.0
+
+# A ceiling on the free stage as a whole, not just each call inside it. The
+# two legs make up to five HTTP requests between them, so per-call timeouts
+# alone allowed eighteen seconds here before the judge saw anything.
+FREE_STAGE_TIMEOUT_S = 7.0
 # Below this many passages, the free sources have not found enough to be worth
 # a judge call, so we go straight to search instead of paying to be told so.
 FREE_EVIDENCE_MIN_PASSAGES = 3

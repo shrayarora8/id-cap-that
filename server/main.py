@@ -432,7 +432,7 @@ async def check_window(session: Session, window: Window) -> None:
         )
         # Its own job, so several claims resolve at once while the
         # conversation carries on.
-        session.spawn(check_claim(session, claim_id, claim))
+        session.spawn(check_claim_or_say_so(session, claim_id, claim))
 
 
 async def edit_claim(session: Session, msg: dict) -> None:
@@ -518,7 +518,58 @@ async def edit_claim(session: Session, msg: dict) -> None:
         heard=original["heard"],
     ))
 
-    session.spawn(check_claim(session, claim_id, claim))
+    session.spawn(check_claim_or_say_so(session, claim_id, claim))
+
+
+async def check_claim_or_say_so(session: Session, claim_id: str, claim) -> None:
+    """Run a claim, and guarantee it ends in a verdict.
+
+    A claim that never answers is the worst outcome the product has. The
+    counter climbs, the words sit underlined, and after forty-five seconds
+    the page gives up and prints NO ANSWER -- which reads as broken, not as
+    uncertain, and is the one impression a fact checker cannot afford.
+
+    Every stage inside is individually bounded, and they still added up:
+    five HTTP requests across the free legs, a judge, a search, a second
+    judge, a crawl, a third judge. Bounding the parts does not bound the
+    whole, so the whole gets its own clock.
+
+    On expiry we say plainly that we ran out of time. That is a real answer:
+    "nothing settled this quickly" is information, and it arrives while the
+    person is still looking at the screen.
+    """
+    try:
+        await asyncio.wait_for(
+            check_claim(session, claim_id, claim),
+            timeout=config.CLAIM_DEADLINE_S,
+        )
+    except asyncio.TimeoutError:
+        log.warning("claim %s: no verdict in %.0fs, answering anyway",
+                    claim_id, config.CLAIM_DEADLINE_S)
+        session.send(messages.claim_verdict(
+            claim_id=claim_id,
+            verdict="INSUFFICIENT_EVIDENCE",
+            sticker="COULD BE CAP",
+            summary=(
+                "Nothing settled this within "
+                f"{int(config.CLAIM_DEADLINE_S)} seconds. "
+                "The sources were slow or had nothing on it."
+            ),
+            stage="confirmed",
+            checks=[messages.check(
+                "verdict_unsupported",
+                f"gave up after {int(config.CLAIM_DEADLINE_S)}s",
+            )],
+            confidence="none",
+        ))
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        # A crash mid-claim used to leave the same silent spinner as a
+        # timeout. Say something rather than nothing.
+        log.exception("claim %s failed", claim_id)
+        session.send(messages.claim_error(
+            claim_id, "internal", "something went wrong checking this one"))
 
 
 async def check_claim(session: Session, claim_id: str, claim) -> None:
