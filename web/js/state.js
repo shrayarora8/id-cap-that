@@ -2,6 +2,14 @@
 // to this object and redraws. That is what makes the whole system watchable as
 // a stream of text with no browser open.
 
+// A reconnect gives us a fresh server session, and that session numbers its
+// phrases from s1 again. Keyed by id alone, the new s1 silently replaces the
+// old one and a whole conversation disappears. Every phrase therefore carries
+// the connection it arrived on and the order it arrived in; the id stays
+// exactly as the contract defines it, for spans.
+let epoch = 0;
+let arrival = 0;
+
 export const state = {
   sessionId: null,
   windows: [], // closed groups: { id, segments, reason, skipped }
@@ -18,6 +26,7 @@ export const state = {
 export function apply(msg) {
   switch (msg.type) {
     case "session.ready":
+      if (state.sessionId && state.sessionId !== msg.session_id) epoch += 1;
       state.sessionId = msg.session_id;
       state.budget = {
         claimsLeft: msg.budget.claims_left,
@@ -48,7 +57,13 @@ export function apply(msg) {
 
     case "transcript.final":
       state.interim = "";
-      state.pending.push({ id: msg.segment_id, text: msg.text });
+      state.pending.push({
+        id: msg.segment_id,
+        text: msg.text,
+        key: `${epoch}:${msg.segment_id}`,
+        epoch,
+        seq: (arrival += 1),
+      });
       return true;
 
     case "window.ready": {
@@ -69,6 +84,7 @@ export function apply(msg) {
     case "claim.detected":
       state.claims.set(msg.claim_id, {
         id: msg.claim_id,
+        epoch,
         spans: msg.spans,
         quote: msg.quote,
         normalized: msg.normalized,

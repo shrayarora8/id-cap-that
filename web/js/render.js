@@ -95,13 +95,16 @@ function paintJump() {
 /** Every segment the page knows about, in stable order, however it is grouped. */
 function orderedSegments() {
   const seen = new Map();
-  for (const w of state.windows) {
-    for (const s of w.segments) seen.set(s.id, { id: s.id, text: s.text, win: w });
-  }
-  for (const s of state.pending) {
-    if (!seen.has(s.id)) seen.set(s.id, { id: s.id, text: s.text, win: null });
-  }
-  return [...seen.values()].sort((a, b) => SEG_N(a.id) - SEG_N(b.id));
+  const put = (s, win) => {
+    const key = s.key || s.id;
+    if (!seen.has(key)) seen.set(key, { ...s, win });
+  };
+  for (const w of state.windows) for (const s of w.segments) put(s, w);
+  for (const s of state.pending) put(s, null);
+
+  // Arrival order, not id order. After a reconnect the server numbers from s1
+  // again, so ids are only unique within one connection.
+  return [...seen.values()].sort((a, b) => (a.seq ?? SEG_N(a.id)) - (b.seq ?? SEG_N(b.id)));
 }
 
 /** Split one segment's text at sentence ends, keeping each piece's offset. */
@@ -134,16 +137,25 @@ function buildLines() {
     len = 0;
   };
 
-  for (const seg of orderedSegments()) {
+  const segs = orderedSegments();
+  segs.forEach((seg, si) => {
+    // Deepgram punctuates a finished utterance, but a typed claim often has no
+    // full stop at all -- and without one the line never closes, so the next
+    // thing said or typed joins the end of it. If the next phrase opens a new
+    // sentence, this one ends here.
+    const next = segs[si + 1];
+    const nextStartsSentence = next ? /^\s*["'“(]?[A-Z0-9]/.test(next.text) : true;
+
     for (const p of piecesOf(seg.text)) {
       if (!p.text) continue;
-      cur.push({ segId: seg.id, base: p.base, text: p.text, win: seg.win });
+      cur.push({ segId: seg.id, epoch: seg.epoch, base: p.base, text: p.text, win: seg.win });
       len += p.text.length;
       if (p.closes) { flush(true); closed = true; }
       else if (len >= SOFT_MAX) { flush(false); closed = false; }
       else closed = false;
     }
-  }
+    if (cur.length && nextStartsSentence) { flush(true); closed = true; }
+  });
   flush(false);
   return { lines, closed: lines.length ? lines[lines.length - 1].closed : true };
 }
@@ -157,6 +169,7 @@ function hitsIn(chunk) {
   for (const c of state.claims.values()) {
     for (const sp of c.spans || []) {
       if (sp.segment_id !== chunk.segId) continue;
+      if (c.epoch !== undefined && chunk.epoch !== undefined && c.epoch !== chunk.epoch) continue;
       const s = Math.max(sp.start, chunk.base);
       const e = Math.min(sp.end, chunk.base + chunk.text.length);
       if (e > s) hits.push({ id: c.id, s: s - chunk.base, e: e - chunk.base });
