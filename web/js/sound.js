@@ -4,17 +4,21 @@
 // venue, and the tones stay tunable while we are still deciding what they
 // should be. These are placeholders — design round 8 picks the real ones.
 //
-// Off by default. A stranger opening the app on their own phone should not be
-// made to make a noise in a room, and browsers refuse audio before a gesture
-// anyway. The choice is remembered per browser.
+// On by default: the sound is part of the product, and a verdict landing
+// without it is a quieter moment than it should be. It can be switched off
+// from the top bar, and that choice is remembered per browser.
+//
+// Nothing plays before the viewer has interacted with the page -- browsers
+// refuse it, and by the time any verdict exists they have pressed Record,
+// tapped an example or typed a claim.
 
 let ctx = null;
-let on = false;
+let on = true;
 
 try {
-  on = localStorage.getItem("cap.sound") === "on";
+  on = localStorage.getItem("cap.sound") !== "off";
 } catch {
-  // Private window, blocked storage. Silence is the safe default.
+  // Private window or blocked storage: fall back to on, the default.
 }
 
 export function enabled() {
