@@ -44,6 +44,20 @@ GROQ_TIMEOUT_S = 4.0
 SORTER_MODEL = "claude-haiku-4-5"   # the fallback, and the judge
 JUDGE_MODEL = "claude-haiku-4-5"    # weighs evidence, returns the verdict
 
+# The judge is 91% of the bill: it reads the claim AND four evidence
+# passages (~2,700 tokens against the sorter's ~1,500), and Haiku charges
+# ten times Groq's rate. Moving it takes $4.74 per thousand claims to $1.07.
+#
+# It is also the harder job. The judge must return a quote that our own code
+# then verifies word for word, compare quantities, and write the correction.
+# A weaker model fails that QUIETLY -- the quote stops matching, the rail
+# downgrades it, and the product just gets vaguer rather than visibly broken.
+#
+# So this is measured against scripts/verify_fixes.py before it is trusted,
+# and it is one line to put back.
+JUDGE_PROVIDER = "groq"
+JUDGE_GROQ_MODEL = "openai/gpt-oss-120b"
+
 # --- speech to text ---------------------------------------------------------
 DEEPGRAM_MODEL = "nova-3"
 DEEPGRAM_LANGUAGE = "en-US"

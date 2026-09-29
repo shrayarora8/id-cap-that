@@ -212,7 +212,9 @@ async def ask(
 
 
 async def ask_fast(
-    *, system: str, user: str, schema: type[T], max_tokens: int = 2000
+    *, system: str, user: str, schema: type[T], max_tokens: int = 2000,
+    provider: str | None = None, fast_model: str | None = None,
+    fallback_model: str | None = None,
 ) -> T:
     """Ask the fastest thing that works, and never fail because of it.
 
@@ -228,13 +230,17 @@ async def ask_fast(
     Both caches are checked before either provider is called, so a claim
     Claude already answered is never re-offered to Groq just to be refused.
     """
-    fallback = config.SORTER_MODEL
+    # Defaults are the sorter's, so the original call site is unchanged.
+    # The judge passes its own, because the two legs are worth switching
+    # independently: the sorter is a cheap easy job, the judge is neither.
+    provider = provider or config.SORTER_PROVIDER
+    fallback = fallback_model or config.SORTER_MODEL
 
-    if config.SORTER_PROVIDER != "groq":
+    if provider != "groq":
         return await ask(model=fallback, system=system, user=user,
                          schema=schema, max_tokens=max_tokens)
 
-    fast = config.SORTER_GROQ_MODEL
+    fast = fast_model or config.SORTER_GROQ_MODEL
 
     # Either provider's remembered answer beats calling anything.
     for model in (fast, fallback):

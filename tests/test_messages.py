@@ -361,13 +361,72 @@ def test_the_sorter_falls_back_rather_than_failing():
 
 
 def test_turning_the_fast_provider_off_restores_claude_only():
-    """One config line must return the system to known behaviour."""
-    import inspect
+    """One config line must return the system to known behaviour.
 
-    from server import llm
+    Asserted by calling it rather than by reading its source: the point is
+    that Groq is never touched, which is a fact about behaviour, and a test
+    that greps for a string breaks on any honest refactor while still
+    passing on a broken one.
+    """
+    import asyncio
 
-    src = inspect.getsource(llm.ask_fast)
-    assert 'config.SORTER_PROVIDER != "groq"' in src
+    from server import config, llm
+
+    called = {}
+
+    async def fake_ask(*, model, system, user, schema, max_tokens=2000):
+        called["model"] = model
+        return "claude answered"
+
+    async def fake_groq(*a, **k):
+        called["groq"] = True
+        raise AssertionError("groq must not be called with the provider off")
+
+    old_ask, old_groq = llm.ask, llm._ask_groq
+    old_provider = config.SORTER_PROVIDER
+    try:
+        llm.ask, llm._ask_groq = fake_ask, fake_groq
+        config.SORTER_PROVIDER = "anthropic"
+        out = asyncio.run(llm.ask_fast(system="s", user="u", schema=str))
+    finally:
+        llm.ask, llm._ask_groq = old_ask, old_groq
+        config.SORTER_PROVIDER = old_provider
+
+    assert out == "claude answered"
+    assert "groq" not in called
+    assert called["model"] == config.SORTER_MODEL
+
+
+def test_the_judge_can_switch_provider_independently_of_the_sorter():
+    """The two legs are worth different decisions.
+
+    The sorter is a cheap easy job and moved to Groq happily. The judge must
+    return a quote our code verifies word for word, so it may need to stay on
+    Claude even when the sorter does not -- which is only possible if the
+    caller can choose.
+    """
+    import asyncio
+
+    from server import config, llm
+
+    seen = {}
+
+    async def fake_ask(*, model, system, user, schema, max_tokens=2000):
+        seen["model"] = model
+        return "fallback"
+
+    old_ask, old_provider = llm.ask, config.SORTER_PROVIDER
+    try:
+        llm.ask = fake_ask
+        config.SORTER_PROVIDER = "groq"          # sorter on Groq...
+        asyncio.run(llm.ask_fast(                # ...judge explicitly not
+            system="s", user="u", schema=str,
+            provider="anthropic", fallback_model="judge-model",
+        ))
+    finally:
+        llm.ask, config.SORTER_PROVIDER = old_ask, old_provider
+
+    assert seen["model"] == "judge-model"
 
 
 def test_both_providers_are_checked_in_the_cache_before_either_is_called():

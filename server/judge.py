@@ -765,8 +765,10 @@ async def judge_claim(
             [],
         )
 
-    judgement = await llm.ask(
-        model=config.JUDGE_MODEL,
+    judgement = await llm.ask_fast(
+        provider=config.JUDGE_PROVIDER,
+        fast_model=config.JUDGE_GROQ_MODEL,
+        fallback_model=config.JUDGE_MODEL,
         system=SYSTEM,
         user=build_prompt(claim, evidence, shape),
         schema=Judgement,
