@@ -157,7 +157,7 @@ el("mute").title = sound.enabled() ? "Sound on" : "Sound off";
 // Which build is actually running. The tier badges were reported as still on
 // screen hours after they were deleted, and there was no way to tell from the
 // page whether it was old code or a stale checkout. Now there is.
-export const BUILD = "85223d9";
+export const BUILD = "5a956ef";
 document.documentElement.dataset.build = BUILD;
 console.info("i'd cap that — build", BUILD);
 
