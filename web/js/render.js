@@ -140,12 +140,16 @@ function buildLines() {
 
   const segs = orderedSegments();
   segs.forEach((seg, si) => {
-    // Deepgram punctuates a finished utterance, but a typed claim often has no
-    // full stop at all -- and without one the line never closes, so the next
-    // thing said or typed joins the end of it. If the next phrase opens a new
-    // sentence, this one ends here.
+    // A typed claim is a whole thought and always stands alone. Speech is not,
+    // so a phrase that continues a sentence still joins the one before it.
     const next = segs[si + 1];
-    const nextStartsSentence = next ? /^\s*["'“(]?[A-Z0-9]/.test(next.text) : true;
+    const nextIsTyped = next ? Boolean(next.typed) : true;
+    const nextStartsSentence = next
+      ? nextIsTyped || /^\s*["'“(]?[A-Z0-9]/.test(next.text)
+      : true;
+
+    // Anything still open belongs to the phrase before this one.
+    if (seg.typed && cur.length) { flush(true); closed = true; }
 
     for (const p of piecesOf(seg.text)) {
       if (!p.text) continue;
@@ -155,7 +159,7 @@ function buildLines() {
       else if (len >= SOFT_MAX) { flush(false); closed = false; }
       else closed = false;
     }
-    if (cur.length && nextStartsSentence) { flush(true); closed = true; }
+    if (cur.length && (seg.typed || nextStartsSentence)) { flush(true); closed = true; }
   });
   flush(false);
   return { lines, closed: lines.length ? lines[lines.length - 1].closed : true };

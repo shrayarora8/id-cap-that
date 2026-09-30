@@ -10,6 +10,21 @@
 let epoch = 0;
 let arrival = 0;
 
+// A typed claim is a whole thought by construction, so it always gets its own
+// line. Speech is not: Deepgram splits one sentence across several phrases,
+// and those have to join up.
+//
+// Capitalisation looked like the signal and is not one -- someone typing in
+// lowercase produced three claims run together on one line. This is exact
+// rather than a guess: a phrase is typed if we just submitted one, or if
+// nothing is being recorded, because speech cannot arrive when the microphone
+// is off.
+let typedPending = 0;
+
+export function noteTyped() {
+  typedPending += 1;
+}
+
 export const state = {
   sessionId: null,
   windows: [], // closed groups: { id, segments, reason, skipped }
@@ -88,16 +103,20 @@ export function apply(msg) {
       state.interim = msg.text;
       return true;
 
-    case "transcript.final":
+    case "transcript.final": {
+      const typed = typedPending > 0 || !state.listening;
+      if (typedPending > 0) typedPending -= 1;
       state.interim = "";
       state.pending.push({
         id: msg.segment_id,
         text: msg.text,
         key: `${epoch}:${msg.segment_id}`,
         epoch,
+        typed,
         seq: (arrival += 1),
       });
       return true;
+    }
 
     case "window.ready": {
       // Move exactly the phrases this window claimed out of pending.

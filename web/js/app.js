@@ -4,7 +4,7 @@
 import * as ws from "./ws.js";
 import * as audio from "./audio.js";
 import * as sound from "./sound.js";
-import { state, apply } from "./state.js";
+import { state, apply, noteTyped } from "./state.js";
 import { render, dismissCold } from "./render.js";
 
 const el = (id) => document.getElementById(id);
@@ -42,6 +42,7 @@ el("say").addEventListener("keydown", (ev) => {
   if (ev.key !== "Enter") return;
   const text = ev.target.value.trim();
   if (!text) return;
+  noteTyped();
   ws.sendJSON({ type: "inject_text", text });
   ev.target.value = "";
 });
@@ -135,6 +136,7 @@ el("listen").addEventListener("click", async () => {
 
 document.querySelectorAll(".eg").forEach((b) => {
   b.addEventListener("click", () => {
+    noteTyped();
     ws.sendJSON({ type: "inject_text", text: b.dataset.eg });
   });
 });
