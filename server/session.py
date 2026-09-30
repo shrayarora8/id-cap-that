@@ -78,7 +78,24 @@ class Session:
         return f"s{next(self._segment_ids)}"
 
     def next_claim_id(self) -> str:
-        return f"c{next(self._claim_ids)}"
+        # Scoped to THIS session's own counter, so a reconnect -- a network
+        # blip, a laptop waking up, a backgrounded tab -- starts a fresh
+        # Session with its own counter restarting at c1. A claim from the
+        # old session and a claim from the new one then share an id.
+        #
+        # The page already lived through this exact bug once, for transcript
+        # segments, and fixed it there: every segment is keyed by its own
+        # epoch plus its id, specifically so a reused id after a reconnect
+        # can never collide. Claims never got the same treatment, and the
+        # result was measured directly: a verdict about the Nobel Prizes,
+        # correctly judged with the right evidence, rendered on top of an
+        # unrelated Tesla claim because both happened to be "c1" from two
+        # different sessions -- the right answer, glued to the wrong words.
+        #
+        # Folding the session's own id into the claim id makes collision
+        # impossible regardless of what happens on the reconnect, rather
+        # than relying on the page to notice and defend against it.
+        return f"c{next(self._claim_ids)}_{self.session_id[5:13]}"
 
     # --- budget -------------------------------------------------------------
 
