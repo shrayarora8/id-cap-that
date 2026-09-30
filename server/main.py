@@ -611,25 +611,18 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
 
     try:
         leg = time.monotonic()
-        status("searching", f"searching {claim.official_domain or 'the web'}")
 
-        # Ask what we have already read before paying to read more. A Moss
-        # query is in-process and takes milliseconds; a Firecrawl search takes
-        # well over a second and a credit. A hit saves both; a miss costs a
-        # few hundred milliseconds, and is hard-timed so it can never become
-        # the slow part.
+        # Ask what we have already read before saying anything about paying to
+        # read more. "searching X" used to fire unconditionally, before this
+        # check -- so a pure cache hit still visibly announced a search that
+        # never happened. Someone re-trying the same claim would watch it say
+        # "searching tesla.com" every single time, whether or not a page was
+        # ever touched, and have no way to tell that from the DB actually
+        # being wiped. The words on screen were the bug, not the cache.
         hits = []
         evidence = []
         from_free = False
 
-        # Have we answered THIS question before? Not "have we read this page"
-        # -- the page cache already did that, and it saved a fetch while every
-        # other leg ran again anyway. This skips the lot.
-        #
-        # The judge still runs. Its prompt contains these exact passages, so
-        # its own cache hits and it costs nothing, but the guard rails re-run
-        # in code over the answer, which is the point: a repeat claim is
-        # re-verified, not replayed.
         from_claim_cache = False
         if config.CLAIM_CACHE:
             evidence = await recall_claim(claim.normalized)
@@ -639,6 +632,10 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
                 leg = mark("claim_cache", leg)
                 send_evidence(session, claim_id, evidence, "snippets")
                 log.info("claim %s: answered from the claim cache", claim_id)
+
+        if not from_claim_cache:
+            # Only announced once we actually know we are about to look.
+            status("searching", f"searching {claim.official_domain or 'the web'}")
 
         # What we can reach without paying, first. Wikipedia and the subject's
         # own site, in parallel, measured at 229ms against ~1300ms and a credit

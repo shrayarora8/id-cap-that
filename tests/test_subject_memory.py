@@ -37,9 +37,11 @@ def test_a_reworded_claim_reuses_what_we_hold():
 
 
 def test_a_different_subject_does_not_reuse_them():
+    # An invented subject, so a real claim run earlier tonight cannot leave
+    # genuine passages on disk for this to accidentally find.
     async def go():
         await keep_subject("Usain Bolt ran the 100 metres in 9.58 seconds.", BOLT)
-        return await recall_subject("Mount Everest is 8,848 metres tall.")
+        return await recall_subject("Fictional Mountain Qwerty is 9,999 metres tall.")
 
     assert asyncio.run(go()) == []
 
