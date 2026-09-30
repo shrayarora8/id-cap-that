@@ -295,6 +295,12 @@ MAX_EDITED_CLAIM_CHARS = 400
 
 SUBJECT_MEMORY = True
 SUBJECT_MEMORY_MAX = 24        # passages held per subject
+
+# How many of a subject's held passages go to the judge on a recall hit. Not
+# filtered by exact keyword match first -- see recall_subject for why -- so
+# this is the real ceiling on judge input size for this path, not a backstop
+# after an already-strict filter.
+SUBJECT_MEMORY_PASSAGES = 6
 FREE_SOURCE_TIMEOUT_S = 6.0
 
 # A ceiling on the free stage as a whole, not just each call inside it. The

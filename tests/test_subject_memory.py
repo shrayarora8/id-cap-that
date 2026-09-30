@@ -46,12 +46,21 @@ def test_a_different_subject_does_not_reuse_them():
     assert asyncio.run(go()) == []
 
 
-def test_irrelevant_passages_about_the_right_subject_are_dropped():
-    """Holding a subject's passages must not mean offering ALL of them.
+def test_held_passages_are_ranked_not_keyword_filtered():
+    """Relevance is the judge's job now, not a keyword match's.
 
-    A claim about a race time should not be judged against a passage about
-    where someone was born. The judge is protected from the noise here
-    rather than asked to see past it.
+    An earlier version of this required a literal word match to pass a
+    passage through, on the theory that a race-time claim should not be
+    judged against a passage about someone's hobbies. True in spirit, but
+    the same strict match also silently dropped a passage that said
+    "relationship with Zendaya" for a claim asking about "dating" --
+    genuinely relevant, zero literal overlap.
+
+    So nothing is REQUIRED to match a keyword any more; passages are ranked
+    by relevance and the likely answer is expected to lead, but an
+    unrelated passage riding along is not itself a failure -- the judge,
+    proven elsewhere to say INSUFFICIENT_EVIDENCE rather than invent a
+    connection, is what actually decides.
 
     Uses an invented subject so the on-disk store, which real runs also
     write to, cannot make this pass or fail by accident.
@@ -69,9 +78,12 @@ def test_irrelevant_passages_about_the_right_subject_are_dropped():
         return await recall_subject(f"{who} ran the marathon in 9 hours.")
 
     got = asyncio.run(go())
-    texts = " ".join(e.text for e in got)
-    assert "marathon" in texts, "the passage that answers it must survive"
-    assert "gardening" not in texts, "the unrelated passage must be dropped"
+    assert got, "held passages about the subject must come back at all"
+    texts = [e.text for e in got]
+    assert any("marathon" in t for t in texts), "the answering passage must be included"
+    assert texts[0] == held[0].text or "marathon" in texts[0], (
+        "the passage that actually answers the claim should rank first"
+    )
 
 
 def test_nothing_held_is_not_an_error():
@@ -79,6 +91,16 @@ def test_nothing_held_is_not_an_error():
 
 
 def test_a_claim_with_no_real_subject_is_skipped():
+    """_subject_of falls back to a claim's own raw text when nothing
+    capitalised exists at all -- reasonable for its other job (giving the
+    Wikipedia leg SOMETHING to search with) but wrong for memory, where it
+    would let two unrelated opinion-shaped claims share a "subject" just
+    because _subject_of gave up on both the same way.
+
+    Caught directly: writing BOLT's evidence under the fallback "subject"
+    of an opinion sentence, then asking for it back by the same sentence,
+    must still come back empty -- there was never a real subject to key on.
+    """
     async def go():
         await keep_subject("it is very good", BOLT)
         return await recall_subject("it is very good")

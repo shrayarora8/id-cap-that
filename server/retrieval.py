@@ -697,6 +697,41 @@ def _subject_of(claim_text: str) -> str:
     return " ".join(names[:6]) or re.sub(r"[^\w\s]", "", claim_text).strip()
 
 
+def _subject_parts(normalized: str) -> list[str]:
+    """Every subject worth checking memory under, not just the joined one.
+
+    "Tom Holland and Taylor Swift are dating" extracts as ONE subject, "Tom
+    Holland and Taylor Swift" -- "and" is a connector, by design, so that a
+    duo or company name ("Simon and Garfunkel", "Johnson and Johnson") stays
+    one subject rather than splitting apart mid-name.
+
+    But a claim naming two people IN RELATION to each other is exactly the
+    case where memory about EITHER of them is useful: evidence stored under
+    "Tom Holland" alone (from an earlier claim about him and Zendaya) should
+    still be checked when a later claim mentions him alongside someone else.
+
+    So this returns the joined subject AND, if it was built from an "and"
+    across two or more capitalised runs, each run on its own. The judge and
+    its guard rails are what decide whether a hit is actually usable --
+    already proven, on this exact pair, to say "insufficient" rather than
+    invent a connection -- so casting this wider costs nothing but a cheap
+    extra lookup on a miss.
+    """
+    whole = _subject_of(normalized)
+    if not whole or " and " not in f" {whole} ":
+        return [whole] if whole else []
+
+    parts = [p.strip() for p in whole.split(" and ") if p.strip()]
+    # Only split when every piece looks like its own name (capitalised,
+    # more than a single stray letter) -- otherwise this is more likely a
+    # real duo name that happened to contain "and", and splitting it would
+    # turn "Simon and Garfunkel" into two subjects neither of which the
+    # evidence was ever filed under.
+    if len(parts) < 2 or not all(p[:1].isupper() and len(p) > 2 for p in parts):
+        return [whole]
+    return [whole] + parts
+
+
 # Words allowed to sit INSIDE a name, never to start or end one.
 _CONNECTORS = {
     "of", "on", "in", "at", "the", "a", "an", "and", "for", "to", "with",
@@ -772,6 +807,25 @@ async def recall_claim(normalized: str) -> list[Evidence]:
 SUBJECT_MEMORY = "subject"
 
 
+def _is_real_subject(subject: str) -> bool:
+    """Was this actually a proper noun, or _subject_of's last resort?
+
+    When nothing capitalised exists at all, _subject_of falls back to the
+    claim's own raw text -- a reasonable last resort for searching Wikipedia
+    with SOMETHING rather than nothing, but wrong for memory. "it is very
+    good" has no real subject, yet the fallback made it one, and a strict
+    keyword filter used to accidentally hide the consequence: nothing stored
+    under an opinion's raw text ever matched anything by keyword anyway. With
+    that filter loosened, this needed its own guard instead of an accident
+    protecting it.
+
+    Every real match from _subject_of starts with a capital, because `names`
+    only ever collects words that passed that same check. The fallback text
+    is the only path that can start lowercase.
+    """
+    return bool(subject) and subject[0].isupper()
+
+
 async def recall_subject(normalized: str) -> list[Evidence]:
     """Passages we already hold about whatever this claim is ABOUT.
 
@@ -790,40 +844,58 @@ async def recall_subject(normalized: str) -> list[Evidence]:
     never a verdict.
     """
     subject = _subject_of(normalized)
-    if not subject or len(subject) < 3:
+    if not _is_real_subject(subject) or len(subject) < 3:
         return []
-    rows = await store.get(SUBJECT_MEMORY, claim_key(subject))
-    if not rows:
-        return []
+
+    # Check the joined subject first, then each name it was built from. A
+    # claim about two people together should still find what is held about
+    # either one alone -- see _subject_parts for why this is safe rather
+    # than just permissive.
     out: list[Evidence] = []
-    for r in rows:
-        try:
-            out.append(Evidence(**r))
-        except TypeError:
-            return []
+    seen_text: set[str] = set()
+    for part in _subject_parts(normalized):
+        if len(part) < 3:
+            continue
+        rows = await store.get(SUBJECT_MEMORY, claim_key(part))
+        if not rows:
+            continue
+        for r in rows:
+            try:
+                ev = Evidence(**r)
+            except TypeError:
+                continue
+            if ev.text not in seen_text:
+                out.append(ev)
+                seen_text.add(ev.text)
     if not out:
         return []
 
     # Held passages are about the subject, not necessarily about THIS claim.
-    # Score them against the actual sentence and keep only what looks like an
-    # answer, so "Bolt was born in Jamaica" does not get offered as evidence
-    # for a claim about his time.
-    # preselect RANKS, it does not score -- an earlier version of this
-    # filtered on Evidence.score, which preselect never sets, so every
-    # passage looked irrelevant and the whole shortcut silently never fired.
-    # Score on what the claim says ABOUT the subject, not on the subject.
-    # Every passage filed under "Usain Bolt" contains "Usain Bolt", so
-    # including the name makes everything score above zero and the filter
-    # does nothing -- his nationality gets offered as evidence about his
-    # race time. Removing the name leaves "ran", "100", "metres", "seconds",
-    # which is what actually decides relevance.
+    # RANK them so the likeliest ones lead, but do not require a literal
+    # keyword match to survive.
+    #
+    # That stricter version existed to stop "Bolt was born in Jamaica" being
+    # offered as evidence for a claim about his race time -- a real problem,
+    # since his nationality and his name share no useful overlap to rule it
+    # out by keywords alone. But requiring an exact word match cuts the other
+    # way just as hard: Wikipedia said Holland is in "a relationship with
+    # Zendaya", the claim asked about "dating" -- zero literal overlap, and a
+    # passage that plainly answers the question was silently discarded.
+    #
+    # The judge already does not need this guardrail. Handed exactly this
+    # evidence for exactly this kind of mismatch, twice, it said
+    # INSUFFICIENT_EVIDENCE rather than invent a connection -- it is the
+    # language-understanding half of the pipeline, a keyword filter is not,
+    # and asking the filter to do that job first was discarding correct
+    # answers before the part that actually understands language ever saw
+    # them. Ranking still orders the likely answer first; nothing is
+    # required to score above zero to be sent.
     wanted = keywords(normalized) - keywords(subject)
     if not wanted:
         wanted = keywords(normalized)
-    kept = [e for e in preselect(out, normalized, config.PRESELECT_PASSAGES,
-                                 per_source=config.PASSAGES_PER_SOURCE * 2)
-            if keyword_score(e, wanted) > 0]
-    log.info("subject %r: %d held -> %d relevant", subject, len(out), len(kept))
+    kept = preselect(out, normalized, config.SUBJECT_MEMORY_PASSAGES,
+                     per_source=config.PASSAGES_PER_SOURCE * 2)
+    log.info("subject %r: %d held -> %d sent to the judge", subject, len(out), len(kept))
     return kept
 
 
@@ -833,7 +905,7 @@ async def keep_subject(normalized: str, evidence: list[Evidence],
     if not evidence:
         return
     subject = _subject_of(normalized)
-    if not subject or len(subject) < 3:
+    if not _is_real_subject(subject) or len(subject) < 3:
         return
     existing = await store.get(SUBJECT_MEMORY, claim_key(subject)) or []
     seen = {r.get("text") for r in existing if isinstance(r, dict)}
