@@ -633,16 +633,12 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
                 send_evidence(session, claim_id, evidence, "snippets")
                 log.info("claim %s: answered from the claim cache", claim_id)
 
-        if not from_claim_cache:
-            # Only announced once we actually know we are about to look.
-            status("searching", f"searching {claim.official_domain or 'the web'}")
-
-        # What we can reach without paying, first. Wikipedia and the subject's
-        # own site, in parallel, measured at 229ms against ~1300ms and a credit
-        # for a search. Ten new claims settled ten of ten from these alone.
         # Same sentence missed, but we may still hold passages about the
         # THING it is about. Reworded claims, corrected typos and follow-up
-        # claims about the same subject all land here.
+        # claims about the same subject all land here -- and this check has
+        # to come BEFORE any "searching" announcement, for the same reason
+        # the claim cache did: the words on screen must not claim to be
+        # doing work this skips.
         from_subject = False
         if config.SUBJECT_MEMORY and not from_claim_cache:
             held = await recall_subject(claim.normalized)
@@ -653,6 +649,14 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
                 leg = mark("subject_memory", leg)
                 send_evidence(session, claim_id, evidence, "snippets")
 
+        if not from_claim_cache and not from_subject:
+            # Only announced once both memories have missed and we actually
+            # know we are about to look something up.
+            status("searching", f"searching {claim.official_domain or 'the web'}")
+
+        # What we can reach without paying, first. Wikipedia and the subject's
+        # own site, in parallel, measured at 229ms against ~1300ms and a credit
+        # for a search. Ten new claims settled ten of ten from these alone.
         if config.FREE_SOURCES_FIRST and not from_claim_cache and not from_subject:
             evidence = await free_evidence(claim, status)
             if evidence and not worth_judging(evidence):
@@ -668,7 +672,15 @@ async def check_claim(session: Session, claim_id: str, claim) -> None:
 
         if not evidence:
             evidence = await recall(claim.normalized)
-        from_memory = bool(evidence) and not from_free and not from_claim_cache
+        # Subject memory already supplied this evidence in that case, and
+        # recall() above never even ran -- "not evidence" was already False.
+        # Without excluding it here, subject memory's own evidence got
+        # mislabelled as Moss recall and printed a second, redundant status
+        # line for the exact same evidence subject memory already announced.
+        from_memory = (
+            bool(evidence) and not from_free
+            and not from_claim_cache and not from_subject
+        )
 
         if from_memory:
             status("searching", "recognised this from what it has already read")
