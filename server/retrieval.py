@@ -708,6 +708,14 @@ _NOT_A_SUBJECT = {
     "the", "a", "an", "this", "that", "these", "those", "and", "but", "so",
     "it", "he", "she", "they", "we", "you", "there", "here", "in", "on", "at",
     "of", "for", "is", "was", "are", "his", "her", "their", "its", "my", "our",
+    # "As" is capitalised at the start of every sentence the sorter opens
+    # with "As of 2026-09-30, ..." -- the date stamp it adds to any claim
+    # about current state: pricing, rankings, headcounts. Being capitalised
+    # and outside the old list, it was taken as the whole subject. Every
+    # claim of that shape searched Wikipedia for "As" and found nothing,
+    # invisibly, since the claim still got an (empty, useless) evidence set
+    # rather than an error.
+    "as",
 }
 
 
