@@ -266,6 +266,7 @@ CHECK_CODES = (
     "entities_missing",    # a named subject of the claim is absent from it
     "numbers_mismatch",    # arithmetic disagreed, so the verdict was forced
     "numbers_match",       # arithmetic agreed (reported, never an upgrade)
+    "exclusive_assumed",   # refuted by elimination where several answers can be true
 )
 
 

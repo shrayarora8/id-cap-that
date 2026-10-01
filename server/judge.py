@@ -114,6 +114,9 @@ NOT tell you who has the most titles: one is a count, the other is an event, and
 nothing ranks them. One passage must contain the answer. If your reasoning \
 contains the word "so" or "which means" across two different passages, the \
 answer is INSUFFICIENT_EVIDENCE.
+- ONE-AT-A-TIME FACTS are the exception to the rule above, and you should use them. Some facts can only have one value at a time: who someone is CURRENTLY married to or in a relationship with, who CURRENTLY leads an organisation (CEO, president, prime minister, head coach), which club a player CURRENTLY plays for, which thing holds a numbered rank ("the most popular", "the second most popular"), a capital city, a place of birth, the year something happened. When ONE passage states the value, a claim naming a DIFFERENT value is CONTRADICTED -- even though that passage never mentions the claim's value. "Holland is married to Zendaya" contradicts "Tom Holland and Taylor Swift are dating". "Sundar Pichai has been the CEO of Google since 2015" contradicts "Satya Nadella is the CEO of Google". That is reading one passage, not stitching two. Cite the sentence that states the real value and put it in `correction`.
+- This NEVER applies to facts that can have several values at once, and getting it wrong is worse than saying nothing: founders and co-founders (companies very often have several), members of a band or team, languages someone speaks, films someone appeared in, schools attended, places lived, companies invested in. A passage naming two founders does not rule out a third. For these, only a passage that addresses the claimed value itself can contradict it; otherwise the answer is INSUFFICIENT_EVIDENCE.
+- Watch the tense. "Are dating", "is the CEO" and "currently plays for" are one-at-a-time. "Once dated", "used to date" and "played for" are not: being married to someone now says nothing about who they dated before.
 - Hedging is about the speaker, not the world. "Approximately five", "I think \
 five" and "about five" are all the claim FIVE. If the evidence says four, that \
 is CONTRADICTED, not partially supported.
@@ -411,6 +414,30 @@ def claim_names(claim: str) -> set[str]:
     }
 
 
+# Relations that routinely have SEVERAL true values at once. Deliberately
+# narrow: authorship, "won the 2018 World Cup" and "invented the telephone"
+# are left out, because a specific book, event or invention usually has one
+# answer and refuting a wrong one is correct.
+MULTI_VALUED = re.compile(
+    r"\b(co-?found\w*|found(?:ed|er|ers|ing)|members?|speaks?|spoke|fluent"
+    r"|starred|appeared|studied|attended|graduated|alumn\w*|lived"
+    r"|once dated|has dated|used to date|dated|played for|invested|investors?)\b",
+    re.IGNORECASE,
+)
+
+
+def names_missing_from_citations(
+    claim: str, citations: list[Citation], evidence: list[Evidence]
+) -> list[str]:
+    """Names in the claim that no cited passage mentions at all."""
+    by_id = {item.evidence_id: item for item in evidence}
+    haystack = " ".join(
+        _flatten_name(f"{by_id[c.evidence_id].title} {by_id[c.evidence_id].text}")
+        for c in citations if c.evidence_id in by_id
+    )
+    return sorted(n for n in claim_names(claim) if f" {n} " not in haystack)
+
+
 def evidence_is_about_the_claim(
     claim: str, citations: list[Citation], evidence: list[Evidence]
 ) -> bool:
@@ -689,6 +716,30 @@ def apply_guard_rails(
         note("entities_missing", f"no passage mentioned all of: {missing}")
         judgement.verdict = "INSUFFICIENT_EVIDENCE"
         judgement.citations = []
+
+    # Refutation by elimination is only sound for one-at-a-time facts. The
+    # prompt says so, and measured against "Tesla was co-founded by JB
+    # Straubel" -- a true claim -- the judge still said CONTRADICTED, twice,
+    # off a passage naming two OTHER founders. Prompts are advice; this is
+    # the rule.
+    #
+    # For a relation that can have several values, a CONTRADICTED verdict
+    # whose cited passage never mentions the claimed name at all has refuted
+    # nothing: it found some founders and assumed there were no others.
+    # A passage that DOES name them ("Musk is not considered a founder")
+    # still contradicts, because then nothing was assumed.
+    if (
+        claim_text
+        and judgement.verdict == "CONTRADICTED"
+        and MULTI_VALUED.search(claim_text)
+    ):
+        missing = names_missing_from_citations(claim_text, judgement.citations, evidence)
+        if missing:
+            note("exclusive_assumed",
+                 f"this kind of fact can have several answers, and nothing cited "
+                 f"mentions {' '.join(missing)} -- naming some does not rule out others")
+            judgement.verdict = "INSUFFICIENT_EVIDENCE"
+            judgement.citations = []
 
     comparison = compare_values(judgement.claimed_value, judgement.evidence_value)
     if comparison == "mismatch" and judgement.verdict in {"SUPPORTED", "PARTIALLY_SUPPORTED"}:
