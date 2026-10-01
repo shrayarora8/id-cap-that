@@ -147,6 +147,35 @@ def _cache_key(model: str, system: str, user: str, schema_name: str) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:24]
 
 
+def _schema_tag(schema: type) -> str:
+    """The schema's name AND its shape, for the cache key.
+
+    Keyed on the name alone, adding a field to a schema left every old answer
+    looking like a hit. The sorter gained a required `subject_kind`; every
+    cached sorter answer lacked it, failed validation on read, and crashed the
+    sorter outright -- no claim at all, for any sentence ever checked before.
+    A shape change now invalidates cleanly, the way a prompt change already
+    did.
+    """
+    shape = json.dumps(schema.model_json_schema(), sort_keys=True)
+    return f"{schema.__name__}:{hashlib.sha256(shape.encode()).hexdigest()[:12]}"
+
+
+def _read_cached(path, schema: type[T]) -> T | None:
+    """A cached answer, or None if it is missing OR no longer fits.
+
+    An unreadable cache entry is a miss, never a crash. The cache exists to
+    save a call; it must not be able to cost one a claim.
+    """
+    if not path.exists():
+        return None
+    try:
+        return schema.model_validate_json(path.read_text())
+    except Exception as exc:  # noqa: BLE001
+        log.info("llm cache entry %s unusable (%s), ignoring it", path.name, type(exc).__name__)
+        return None
+
+
 def _price(model: str, usage: Any) -> float:
     per_in, per_out = PRICES.get(model, (0.0, 0.0))
     return (usage.input_tokens * per_in + usage.output_tokens * per_out) / 1_000_000
@@ -168,13 +197,15 @@ async def ask(
     """
     global _spent_usd, _calls, _cache_hits
 
-    key = _cache_key(model, system, user, schema.__name__)
+    key = _cache_key(model, system, user, _schema_tag(schema))
     cached_at = CACHE_DIR / f"{key}.json"
 
-    if use_cache and cached_at.exists():
-        _cache_hits += 1
-        log.info("llm cache hit (%s)", key)
-        return schema.model_validate_json(cached_at.read_text())
+    if use_cache:
+        hit = _read_cached(cached_at, schema)
+        if hit is not None:
+            _cache_hits += 1
+            log.info("llm cache hit (%s)", key)
+            return hit
 
     if _calls >= config.MAX_LLM_CALLS_PER_SESSION:
         raise BudgetExceeded(
@@ -269,17 +300,17 @@ def _why(exc: Exception) -> str:
 
 
 def _cached(model: str, system: str, user: str, schema: type[T]) -> T | None:
-    path = CACHE_DIR / f"{_cache_key(model, system, user, schema.__name__)}.json"
-    if not path.exists():
-        return None
-    global _cache_hits
-    _cache_hits += 1
-    return schema.model_validate_json(path.read_text())
+    path = CACHE_DIR / f"{_cache_key(model, system, user, _schema_tag(schema))}.json"
+    hit = _read_cached(path, schema)
+    if hit is not None:
+        global _cache_hits
+        _cache_hits += 1
+    return hit
 
 
 def _remember(model: str, system: str, user: str, schema: type[T], value: T) -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    (CACHE_DIR / f"{_cache_key(model, system, user, schema.__name__)}.json").write_text(
+    (CACHE_DIR / f"{_cache_key(model, system, user, _schema_tag(schema))}.json").write_text(
         value.model_dump_json()
     )
 
