@@ -595,8 +595,34 @@ async def free_evidence(claim, on_status=lambda _s, _d="": None) -> list[Evidenc
     subject = (claim.official_domain or "").split(".")[0] or _subject_of(claim.normalized)
     ttl = store.ttl_for(claim.kind, claim.shape)
 
+    # Resolve WHO the claim is about once, and let both legs take their
+    # source from that one entity. Resolved separately, they disagreed or
+    # were wrong on four of seven everyday subjects -- and a judge handed
+    # passages about two different Tom Hollands, correctly, would not commit
+    # to anything about either. See entities.resolve.
+    #
+    # For "Tom Holland and Taylor Swift" the first name is the one resolved:
+    # it is the one the sorter's subject_kind describes.
+    parts = _subject_parts(claim.normalized)
+    primary = parts[1] if len(parts) > 1 else (parts[0] if parts else "")
+    entity = None
+    if config.RESOLVE_ENTITIES and primary and getattr(claim, "subject_kind", ""):
+        try:
+            entity = await asyncio.wait_for(
+                entities.resolve(primary, claim.subject_kind),
+                timeout=config.FREE_SOURCE_TIMEOUT_S)
+        except Exception as exc:  # noqa: BLE001
+            log.info("free: entity resolution failed (%s)", type(exc).__name__)
+
     async def wiki() -> list[Passage]:
         try:
+            if entity:
+                # Resolved, and no English article: there is nothing to read.
+                # Falling back to a name search here is exactly how Tesla
+                # turned into Nikola Tesla.
+                if not entity.wiki_title:
+                    return []
+                return await reference.passages_for_title(entity.wiki_title, primary)
             return await reference.passages_for(_subject_of(claim.normalized),
                                                 claim.normalized)
         except Exception as exc:  # noqa: BLE001
@@ -605,9 +631,14 @@ async def free_evidence(claim, on_status=lambda _s, _d="": None) -> list[Evidenc
 
     async def authority() -> list[Passage]:
         try:
-            site = await entities.official_site(
-                _subject_of(claim.normalized), claim.normalized
-            )
+            if entity:
+                # Only the resolved entity's own site. A name search here is
+                # how the actor Tom Holland was given the historian's website.
+                site = entity.site
+            else:
+                site = await entities.official_site(
+                    _subject_of(claim.normalized), claim.normalized
+                )
             if not site and claim.official_domain:
                 # The sorter's guess, when Wikidata had nothing verified.
                 site = f"https://{claim.official_domain}"

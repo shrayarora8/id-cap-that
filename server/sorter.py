@@ -79,6 +79,24 @@ class Claim(BaseModel):
         default="",
         description="One short phrase explaining an unfalsifiable claim, e.g. 'pure buzzwords'.",
     )
+    # Required, not defaulted: with a default, Groq's strict schema mode
+    # treats it as optional and left it out for "Tom Holland is married to
+    # Zendaya" one time in two -- and a blank here falls back to resolving
+    # by name, which is exactly how the actor was given a historian's site.
+    subject_kind: str = Field(
+        description=(
+            "What KIND of thing the claim's main subject is, in two to four "
+            "words, the way an encyclopedia would describe it: 'electric car "
+            "company', 'English actor', 'football club', 'dog breed', 'cloud "
+            "data company', 'software company'. This is how the right one is "
+            "picked when several things share a name -- Tesla the car company "
+            "versus Nikola Tesla, Arsenal the club versus an arsenal of "
+            "weapons. When the claim names two or more people or things, "
+            "describe the FIRST one named ('Tom Holland and Taylor Swift are "
+            "dating' -> 'English actor'). Empty only when the claim names no "
+            "subject at all."
+        ),
+    )
 
 
 class SorterResult(BaseModel):
@@ -251,6 +269,7 @@ async def find_claims(window_text: str, context: str = "") -> list[Claim]:
             checkable=False,
             shape="other",
             note=f"corporate filler: {', '.join(found)}",
+            subject_kind="",
         )]
 
     log.info("sorter: %d claim(s) in %r", len(claims), window_text[:60])

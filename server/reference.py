@@ -90,8 +90,17 @@ async def passages_for(subject: str, claim: str) -> list[Passage]:
     """
     title = await find_article(subject)
     if not title:
-        return None or []
+        return []
+    return await passages_for_title(title, subject)
 
+
+async def passages_for_title(title: str, subject: str = "") -> list[Passage]:
+    """The named Wikipedia article, cut into passages.
+
+    Separate from passages_for so a caller that already KNOWS which article
+    it wants -- because it resolved the entity first -- never goes through
+    a name search that can land on Nikola Tesla instead of Tesla, Inc.
+    """
     url = f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}"
     text = await store.get("page", url)
 

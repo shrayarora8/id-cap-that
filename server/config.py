@@ -307,6 +307,11 @@ FREE_SOURCE_TIMEOUT_S = 6.0
 # two legs make up to five HTTP requests between them, so per-call timeouts
 # alone allowed eighteen seconds here before the judge saw anything.
 FREE_STAGE_TIMEOUT_S = 7.0
+
+# Resolve the claim's subject to ONE Wikidata entity before the free legs
+# run, using the sorter's subject_kind to pick between things that share a
+# name. False restores resolving each leg by name independently.
+RESOLVE_ENTITIES = True
 # Below this many passages, the free sources have not found enough to be worth
 # a judge call, so we go straight to search instead of paying to be told so.
 FREE_EVIDENCE_MIN_PASSAGES = 3
